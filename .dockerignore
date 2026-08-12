@@ -1,0 +1,10 @@
+node_modules
+.env
+.wwebjs_auth
+.wwebjs_cache
+.state
+receipts
+qr-*.png
+test
+*.log
+README.md

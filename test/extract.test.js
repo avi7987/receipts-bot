@@ -1,0 +1,180 @@
+// בדיקות ליבה: כל מה שאפשר לבדוק בלי לקרוא ל-AI ובלי וואטסאפ.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import { normalize, num, isoDate, dateLooksSane, extractJson } from '../src/vision.js';
+import { rowFrom, HEADERS, colLetter, hebField } from '../src/sheets.js';
+import { money, heDate, receiptMessage } from '../src/format.js';
+
+const today = () => new Date().toISOString().slice(0, 10);
+
+// ── המרת מספרים ─────────────────────────────────────────────────────
+test('num מנקה סימני מטבע ופסיקי אלפים', () => {
+  assert.equal(num('1,234.50 ₪'), 1234.5);
+  assert.equal(num('₪87.40'), 87.4);
+  assert.equal(num(42), 42);
+  assert.equal(num(''), null);
+  assert.equal(num('לא מספר'), null);
+  assert.equal(num(null), null);
+});
+
+// ── תאריכים ─────────────────────────────────────────────────────────
+test('isoDate מקבל רק תאריך תקין בפורמט ISO', () => {
+  assert.equal(isoDate('2026-08-04'), '2026-08-04');
+  assert.equal(isoDate('2026-08-04T10:00:00Z'), '2026-08-04');
+  assert.equal(isoDate('04/08/2026'), null);   // לא ISO — המודל היה אמור להמיר
+  assert.equal(isoDate('2026-02-31'), null);   // תאריך שלא קיים
+  assert.equal(isoDate(null), null);
+});
+
+test('dateLooksSane פוסל עתיד רחוק ועבר עתיק', () => {
+  const iso = (d) => new Date(Date.now() + d * 86400e3).toISOString().slice(0, 10);
+  assert.equal(dateLooksSane(iso(-3)), true);
+  assert.equal(dateLooksSane(iso(-400)), true);
+  assert.equal(dateLooksSane(iso(30)), false);     // חודש קדימה = קריאה שגויה
+  assert.equal(dateLooksSane(iso(-900)), false);   // לפני יותר משנתיים
+});
+
+// ── חילוץ ה-JSON מהתשובה של המודל ───────────────────────────────────
+test('extractJson קורא JSON נקי, עטוף בגדרות, או משובץ בטקסט', () => {
+  assert.deepEqual(extractJson('{"a":1}'), { a: 1 });
+  assert.deepEqual(extractJson('```json\n{"a":1}\n```'), { a: 1 });
+  assert.deepEqual(extractJson('בבקשה:\n{"a":1}\nבהצלחה'), { a: 1 });
+  assert.equal(extractJson('בלי שום JSON'), null);
+  assert.equal(extractJson(''), null);
+});
+
+// ── normalize ───────────────────────────────────────────────────────
+const raw = {
+  is_receipt: true,
+  date: today(),
+  total: '444.00',
+  doc_number: '0038412',
+  tip_extra: null,
+  currency: 'ils',
+  vendor: 'מסעדת הגליל בע"מ',
+  uncertain: [],
+};
+
+test('normalize מנקה ומטפס את שלושת השדות', () => {
+  const r = normalize(raw);
+  assert.equal(r.date, today());
+  assert.equal(r.total, 444);
+  assert.equal(r.doc_number, '0038412');   // אפס מוביל נשמר כמחרוזת
+  assert.equal(r.currency, 'ILS');         // אותיות גדולות
+  assert.deepEqual(r.uncertain, []);
+});
+
+test('normalize מחשב סכום כולל טיפ שנמסר במזומן', () => {
+  const r = normalize({ ...raw, tip_extra: '50' });
+  assert.equal(r.total, 444);              // מה שנגבה בפועל
+  assert.equal(r.tip_extra, 50);
+  assert.equal(r.total_with_tip, 494);     // מה שנכנס לטבלה
+});
+
+test('בלי טיפ — הסכום הכולל זהה לסכום הקבלה', () => {
+  const r = normalize(raw);
+  assert.equal(r.total_with_tip, 444);
+  assert.equal(r.tip_extra, null);
+});
+
+test('טיפ אפס או שלילי נזרק', () => {
+  assert.equal(normalize({ ...raw, tip_extra: 0 }).tip_extra, null);
+  assert.equal(normalize({ ...raw, tip_extra: -20 }).tip_extra, null);
+  assert.equal(normalize({ ...raw, tip_extra: -20 }).total_with_tip, 444);
+});
+
+test('חיבור הטיפ לא גורר שגיאת עשרוניות', () => {
+  const r = normalize({ ...raw, total: 87.1, tip_extra: 12.2 });
+  assert.equal(r.total_with_tip, 99.3);    // ולא 99.30000000000001
+});
+
+test('normalize מסמן שדות חסרים כלא-ודאיים', () => {
+  const r = normalize({ ...raw, date: null, total: null, doc_number: null });
+  assert.ok(r.uncertain.includes('date'));
+  assert.ok(r.uncertain.includes('total'));
+  assert.ok(r.uncertain.includes('doc_number'));
+  assert.equal(r.total_with_tip, null);
+});
+
+test('normalize תופס תאריך לא הגיוני', () => {
+  const future = new Date(Date.now() + 60 * 86400e3).toISOString().slice(0, 10);
+  assert.ok(normalize({ ...raw, date: future }).uncertain.includes('date'));
+});
+
+test('normalize מכבד is_receipt=false', () => {
+  const r = normalize({ is_receipt: false, not_receipt_reason: 'זו תמונה של חתול' });
+  assert.equal(r.is_receipt, false);
+  assert.equal(r.not_receipt_reason, 'זו תמונה של חתול');
+});
+
+// ── בניית השורה לגיליון ─────────────────────────────────────────────
+test('הטבלה היא בדיוק 4 עמודות', () => {
+  assert.deepEqual(HEADERS, ['תאריך', 'סכום כולל', 'מספר חשבונית', 'הוזן במערכת']);
+});
+
+test('rowFrom מייצר שורה באורך הכותרות', () => {
+  assert.equal(rowFrom(normalize(raw)).length, HEADERS.length);
+});
+
+test('rowFrom כותב את הסכום כולל הטיפ, כמספר', () => {
+  const row = rowFrom(normalize({ ...raw, tip_extra: 50 }));
+  const v = row[HEADERS.indexOf('סכום כולל')];
+  assert.equal(typeof v, 'number');
+  assert.equal(v, 494);
+});
+
+test('rowFrom שומר אפסים מובילים במספר החשבונית', () => {
+  const row = rowFrom(normalize(raw));
+  assert.equal(row[HEADERS.indexOf('מספר חשבונית')], "'0038412");
+});
+
+test('rowFrom מייצר תיבת סימון ריקה', () => {
+  assert.equal(rowFrom(normalize(raw))[HEADERS.indexOf('הוזן במערכת')], false);
+});
+
+test('rowFrom משאיר תא ריק כשהשדה לא נקרא', () => {
+  const row = rowFrom(normalize({ ...raw, total: null, doc_number: null }));
+  assert.equal(row[HEADERS.indexOf('סכום כולל')], '');
+  assert.equal(row[HEADERS.indexOf('מספר חשבונית')], '');
+});
+
+test('colLetter ממיר מספר עמודה לאות', () => {
+  assert.equal(colLetter(1), 'A');
+  assert.equal(colLetter(4), 'D');
+  assert.equal(colLetter(27), 'AA');
+});
+
+test('hebField נופל חזרה לשם המקורי כשאין תרגום', () => {
+  assert.equal(hebField('doc_number'), 'מספר חשבונית');
+  assert.equal(hebField('something_else'), 'something_else');
+});
+
+// ── ההודעה שחוזרת לקבוצה ────────────────────────────────────────────
+test('money ו-heDate בפורמט ישראלי', () => {
+  assert.equal(money(1234.5, 'ILS'), '1,234.50 ₪');
+  assert.equal(money(20, 'USD'), '20.00 $');
+  assert.equal(money(null), null);
+  assert.equal(heDate('2026-08-04'), '4.8.2026');
+  assert.equal(heDate(null), null);
+});
+
+test('receiptMessage מציג את שלושת השדות', () => {
+  const msg = receiptMessage(normalize(raw), { row: 12, sheetUrl: 'https://sheet' });
+  assert.match(msg, /444\.00 ₪/);
+  assert.match(msg, /חשבונית 0038412/);
+  assert.match(msg, /שורה 12/);
+});
+
+test('receiptMessage מפרט את חישוב הטיפ', () => {
+  const msg = receiptMessage(normalize({ ...raw, tip_extra: 50 }), {});
+  assert.match(msg, /494\.00 ₪/);
+  assert.match(msg, /444\.00 ₪ \+ 50\.00 ₪ טיפ/);
+});
+
+test('receiptMessage אומר במפורש מה לא נקרא', () => {
+  const msg = receiptMessage(normalize({ ...raw, total: null, doc_number: null }), {});
+  assert.match(msg, /הסכום לא זוהה/);
+  assert.match(msg, /מספר החשבונית לא זוהה/);
+  assert.match(msg, /צריך להשלים ידנית/);
+});
