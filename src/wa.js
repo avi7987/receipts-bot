@@ -40,7 +40,30 @@ const READABLE_MIME = /^(image\/(jpeg|jpg|png|webp|heic|heif)|application\/pdf)$
  * @param {boolean} opts.onlyFromMe  לעבד רק הודעות שאני שלחתי.
  * @param {(session, msg) => Promise<void>} opts.onReceipt
  */
+/**
+ * מנקה נעילות פרופיל שנשארו מהרצה קודמת.
+ *
+ * כשקונטיינר נעצר בכוח, Chromium לא מספיק לשחרר את קבצי ה-Singleton
+ * בתיקיית הסשן. בהרצה הבאה הוא מסרב לעלות ("The profile appears to be
+ * in use by another Chromium process") והבוט נכנס ללולאת אתחול.
+ * בטוח למחוק: אנחנו מריצים עותק אחד בלבד.
+ */
+function clearStaleLocks() {
+  const dir = path.resolve(SESSION_ROOT, 'session-receipts');
+  let removed = 0;
+  try {
+    for (const name of fs.readdirSync(dir)) {
+      if (name.startsWith('Singleton') || name === 'lockfile') {
+        try { fs.rmSync(path.join(dir, name), { force: true, recursive: true }); removed++; } catch { /* לא קריטי */ }
+      }
+    }
+  } catch { /* אין עדיין תיקיית סשן — הרצה ראשונה */ }
+  if (removed) console.log(`🧹 נוקו ${removed} נעילות פרופיל שנשארו מהרצה קודמת`);
+}
+
 export function createSession({ groupId, onlyFromMe, onReceipt }) {
+  clearStaleLocks();
+
   const client = new Client({
     authStrategy: new LocalAuth({ clientId: 'receipts', dataPath: SESSION_ROOT }),
     webVersionCache: WEB_CACHE,
