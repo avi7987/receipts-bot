@@ -176,6 +176,23 @@ export async function replyTo(session, msg, text) {
   }
 }
 
+/**
+ * מעדכן הודעה שהבוט כבר שלח, במקום לשלוח חדשה.
+ * אם העריכה נכשלת (וואטסאפ מגבילה לחלון זמן, והספרייה לא תמיד עומדת
+ * בזה) — שולחים הודעה חדשה, כדי שהמשתמש תמיד יקבל תשובה.
+ */
+export async function updateOrReply(session, ack, original, text) {
+  if (ack) {
+    try {
+      await ack.edit(text);
+      return ack;
+    } catch (e) {
+      if (DEBUG) console.log(`   ↩︎ עריכת ההודעה נכשלה (${e.message}), שולח חדשה`);
+    }
+  }
+  return replyTo(session, original, text);
+}
+
 // ── הורדת הקובץ מההודעה ─────────────────────────────────────────────
 /**
  * מחזיר { base64, mimetype, bytes, filename } או null אם זה לא משהו שאפשר לקרוא.

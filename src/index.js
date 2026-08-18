@@ -10,7 +10,7 @@
 // =====================================================================
 import 'dotenv/config';
 import http from 'http';
-import { createSession, downloadReceipt, msgIdOf } from './wa.js';
+import { createSession, downloadReceipt, msgIdOf, updateOrReply } from './wa.js';
 import { readReceipt, visionAvailable } from './vision.js';
 import { appendRow, rowFrom, sheetUrl, sheetsConfigured } from './sheets.js';
 import { saveReceipt, storageMode } from './storage.js';
@@ -67,6 +67,10 @@ async function onReceipt(session, msg) {
 
   await react(msg, '⏳');
 
+  // אישור מיידי — כדי שתדע שהקבלה נתפסה ולא נעלמה.
+  // ההודעה הזו תתעדכן בהמשך לתוצאה הסופית, כך שלא נשארות שתי הודעות.
+  const ack = await session.reply(msg, '⏳ *קיבלתי קבלה* — קורא אותה...');
+
   // ── קריאה ב-AI ──
   let data;
   try {
@@ -77,14 +81,14 @@ async function onReceipt(session, msg) {
     state.rememberMessage(msgId);
     const kind = e.message === 'missing-gemini-key' ? 'missing-gemini-key' : 'read-failed';
     console.error('קריאת הקבלה נכשלה:', e.message || e);
-    await session.reply(msg, errorMessage(kind, kind === 'read-failed' ? short(e.message) : null));
+    await updateOrReply(session, ack, msg, errorMessage(kind, kind === 'read-failed' ? short(e.message) : null));
     return;
   }
 
   if (!data.is_receipt) {
     await react(msg, '🤷');
     state.rememberMessage(msgId);
-    await session.reply(msg, notReceiptMessage(data.not_receipt_reason));
+    await updateOrReply(session, ack, msg, notReceiptMessage(data.not_receipt_reason));
     return;
   }
 
@@ -102,7 +106,7 @@ async function onReceipt(session, msg) {
     await react(msg, '❌');
     console.error('כתיבה לגיליון נכשלה:', e.message || e);
     const kind = e.message === 'sheets-not-configured' ? 'sheets-not-configured' : 'sheet-failed';
-    await session.reply(msg, errorMessage(kind, kind === 'sheet-failed' ? short(e.message) : null));
+    await updateOrReply(session, ack, msg, errorMessage(kind, kind === 'sheet-failed' ? short(e.message) : null));
     return;   // לא רושמים בזיכרון — כך שליחה חוזרת אחרי תיקון תעבוד
   }
 
@@ -110,7 +114,7 @@ async function onReceipt(session, msg) {
   processed++;
   state.remember(msgId, hash, { label: labelOf(data), row });
   await react(msg, '✅');
-  await session.reply(msg, receiptMessage(data, { row, sheetUrl: sheetUrl(row) }));
+  await updateOrReply(session, ack, msg, receiptMessage(data, { row, sheetUrl: sheetUrl(row) }));
 
   console.log(`🧾 ${data.vendor || '?'} · ${data.date || '?'} · ${data.total_with_tip ?? '?'} ${data.currency} → שורה ${row ?? '?'}`);
 }
