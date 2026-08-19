@@ -8,7 +8,7 @@
 //  אין כאן ספריות כבדות: חתימת ה-JWT נעשית עם crypto המובנה של Node,
 //  ושאר הקריאות הן fetch רגיל — בדיוק כמו שאר הפרויקט.
 //
-//  הטבלה מכוונת: 3 עמודות נתונים + תיבת סימון. ברגע שמסמנים ✓
+//  הטבלה: 5 עמודות נתונים + תיבת סימון + חותמת. ברגע שמסמנים ✓
 //  השורה נצבעת בירוק אוטומטית — סימן שהקבלה כבר הוזנה בארגון.
 // =====================================================================
 import 'dotenv/config';
@@ -258,6 +258,71 @@ async function ensureSummary(token) {
     },
   ]).catch(() => {});
   console.log('📊 נוסף בלוק הסיכום.');
+}
+
+// ── חיפוש שורה קיימת ────────────────────────────────────────────────
+//
+//  הזיכרון המקומי של הבוט לא יודע שמחקת שורה מהגיליון. לכן לפני
+//  שמכריזים "כבר קלטתי את זה", בודקים שהשורה באמת עדיין שם.
+//  הגיליון הוא מקור האמת, לא הזיכרון.
+/**
+ * @param {{doc_number?:string|null, date?:string|null, total?:number|null}} key
+ * @returns {Promise<number|null>} מספר השורה, או null אם אינה קיימת
+ */
+export async function findRow(key) {
+  if (!key || !sheetsConfigured()) return null;
+
+  const token = await accessToken();
+  await ensureSetup(token);
+
+  const last = colLetter(HEADERS.length);
+  const res = await fetch(`${API}/${SHEET_ID}/values/${encodeURIComponent(`${TAB}!A2:${last}`)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!res.ok) throw new Error(`Sheets read ${res.status}`);
+  const rows = (await res.json()).values || [];
+
+  const wantDoc = normDoc(key.doc_number);
+  const wantTotal = key.total === null || key.total === undefined ? null : Number(key.total);
+
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const doc = normDoc(r[COL_DOC]);
+    const total = numOf(r[COL_TOTAL]);
+
+    // מספר חשבונית הוא המזהה החזק — אם הוא קיים בשני הצדדים, הוא מכריע
+    if (wantDoc && doc) {
+      if (doc === wantDoc) return i + 2;
+      continue;
+    }
+    // אין מספר חשבונית: נופלים לשילוב תאריך + סכום
+    if (wantTotal !== null && total !== null && Math.abs(total - wantTotal) < 0.005) {
+      if (!key.date || sameDate(r[COL_DATE], key.date)) return i + 2;
+    }
+  }
+  return null;
+}
+
+export function normDoc(v) {
+  const s = String(v ?? '').replace(/^'/, '').trim();
+  return s || null;
+}
+
+// "494.00 ₪" → 494
+export function numOf(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = parseFloat(String(v).replace(/[^\d.,-]/g, '').replace(/,/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
+// הגיליון מציג dd/MM/yyyy, אצלנו זה YYYY-MM-DD
+export function sameDate(cell, iso) {
+  const s = String(cell ?? '').trim();
+  if (!s || !iso) return false;
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
+  const asIso = m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : s;
+  return asIso === iso;
 }
 
 // ── חותמת זמן על שורות שסומנו ───────────────────────────────────────

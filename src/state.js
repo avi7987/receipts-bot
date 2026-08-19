@@ -78,3 +78,29 @@ export function remember(id, hash, info) {
 export function rememberMessage(id) {
   remember(id, null, null);
 }
+
+/**
+ * שוכח תמונה שכבר נקלטה — בשביל המקרה שהשורה נמחקה מהגיליון
+ * והמשתמש מעלה את הקבלה שוב בכוונה.
+ */
+export function forgetImage(hash) {
+  load();
+  if (hash && mem.hashes[hash]) {
+    delete mem.hashes[hash];
+    save();
+    return true;
+  }
+  return false;
+}
+
+/** מאפשר לעבד מחדש הודעה שכבר נרשמה. */
+export function forgetMessage(id) {
+  load();
+  const i = mem.msgIds.indexOf(id);
+  if (i >= 0) {
+    mem.msgIds.splice(i, 1);
+    save();
+    return true;
+  }
+  return false;
+}

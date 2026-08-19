@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { normalize, num, isoDate, dateLooksSane, extractJson } from '../src/vision.js';
-import { rowFrom, HEADERS, colLetter, hebField } from '../src/sheets.js';
+import { rowFrom, HEADERS, colLetter, hebField, normDoc, numOf, sameDate } from '../src/sheets.js';
 import { money, heDate, receiptMessage } from '../src/format.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -191,4 +191,25 @@ test('receiptMessage אומר במפורש מה לא נקרא', () => {
   assert.match(msg, /הסכום לא זוהה/);
   assert.match(msg, /מספר החשבונית לא זוהה/);
   assert.match(msg, /צריך להשלים ידנית/);
+});
+
+// ── התאמה מול הגיליון (זיהוי כפילות אמיתית) ─────────────────────────
+test('normDoc מנקה גרשה מובילה ורווחים', () => {
+  assert.equal(normDoc("'0038412"), '0038412');
+  assert.equal(normDoc('  119069 '), '119069');
+  assert.equal(normDoc(''), null);
+  assert.equal(normDoc(null), null);
+});
+
+test('numOf קורא סכום כפי שהגיליון מציג אותו', () => {
+  assert.equal(numOf('494.00 ₪'), 494);
+  assert.equal(numOf('1,234.50 ₪'), 1234.5);
+  assert.equal(numOf(''), null);
+});
+
+test('sameDate משווה תאריך ישראלי מול ISO', () => {
+  assert.equal(sameDate('03/08/2026', '2026-08-03'), true);
+  assert.equal(sameDate('3/8/2026', '2026-08-03'), true);     // בלי אפסים מובילים
+  assert.equal(sameDate('03/08/2026', '2026-03-08'), false);  // לא מתבלבל בין יום לחודש
+  assert.equal(sameDate('', '2026-08-03'), false);
 });

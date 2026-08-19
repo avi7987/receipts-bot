@@ -15,7 +15,7 @@ import {
   msgIdOf, updateOrReply, scanGroupMedia, sendToGroup,
 } from './wa.js';
 import { readReceipt, visionAvailable } from './vision.js';
-import { appendRow, rowFrom, sheetUrl, sheetsConfigured, stampChecked } from './sheets.js';
+import { appendRow, rowFrom, sheetUrl, sheetsConfigured, stampChecked, findRow } from './sheets.js';
 import { saveReceipt, storageMode } from './storage.js';
 import * as state from './state.js';
 import { receiptMessage, notReceiptMessage, errorMessage, heDate, money } from './format.js';
@@ -74,12 +74,21 @@ async function handleReceipt(session, job) {
   }
 
   // ── כפילות: אותה תמונה בדיוק ──
+  //
+  //  הזיכרון לבדו לא מספיק: אם מחקת את השורה מהגיליון ושלחת את
+  //  הקבלה שוב, הכוונה שלך ברורה. לכן מאשרים מול הגיליון עצמו,
+  //  והוא הקובע.
   const hash = state.hashOf(media.base64);
   const before = state.seenImage(hash);
   if (before) {
-    state.rememberMessage(msgId);
-    await say(errorMessage('duplicate', before.label || null));
-    return;
+    const stillThere = await rowStillExists(before);
+    if (stillThere) {
+      state.rememberMessage(msgId);
+      await say(errorMessage('duplicate', before.label || null));
+      return;
+    }
+    console.log('♻️  הקבלה הייתה בזיכרון אבל השורה כבר לא בגיליון — קולט מחדש');
+    state.forgetImage(hash);
   }
 
   await react(replyTo, '⏳');
@@ -129,7 +138,12 @@ async function handleReceipt(session, job) {
 
   // ── סיום ──
   processed++;
-  state.remember(msgId, hash, { label: labelOf(data), row });
+  // שומרים גם את המזהים, כדי שאפשר יהיה לאמת מול הגיליון בפעם הבאה
+  state.remember(msgId, hash, {
+    label: labelOf(data),
+    row,
+    key: { doc_number: data.doc_number, date: data.date, total: data.total_with_tip },
+  });
   await react(replyTo, '✅');
   await updateOrReply(session, ack, replyTo, receiptMessage(data, { row, sheetUrl: sheetUrl(row) }));
 
@@ -150,6 +164,21 @@ function cleanCaption(body) {
 // תיאור קצר לזיהוי כפילות: "רמי לוי, 87.40 ₪, 4.8.2026"
 function labelOf(d) {
   return [d.vendor, money(d.total_with_tip, d.currency), heDate(d.date)].filter(Boolean).join(', ');
+}
+
+/**
+ * האם השורה שנרשמה בזיכרון עדיין קיימת בגיליון?
+ * ברירת המחדל בספק היא "כן" — עדיף לומר "כבר קלטתי" מאשר לכפול שורה
+ * רק בגלל תקלת רשת רגעית.
+ */
+async function rowStillExists(before) {
+  if (!before?.key) return true;        // רשומה ישנה, בלי מזהים לבדיקה
+  try {
+    return (await findRow(before.key)) !== null;
+  } catch (e) {
+    console.error('בדיקת השורה בגיליון נכשלה:', e.message || e);
+    return true;
+  }
 }
 
 // אימוג'י על ההודעה — נחמד שיהיה, לא נורא אם לא.
