@@ -115,8 +115,8 @@ test('normalize מכריח קטגוריה מהרשימה הסגורה', () => {
 });
 
 // ── בניית השורה לגיליון ─────────────────────────────────────────────
-test('הטבלה היא שבע עמודות בסדר הנכון', () => {
-  assert.deepEqual(HEADERS, ['תאריך', 'ספק', 'סכום כולל', 'מספר חשבונית', 'קטגוריה', 'הוזן במערכת', 'סומן בתאריך']);
+test('הטבלה היא שמונה עמודות בסדר הנכון', () => {
+  assert.deepEqual(HEADERS, ['תאריך', 'ספק', 'סכום כולל', 'מספר חשבונית', 'קטגוריה', 'הוזן במערכת', 'סומן בתאריך', 'קבלה']);
 });
 
 test('rowFrom מייצר שורה באורך הכותרות', () => {
@@ -219,4 +219,16 @@ test('הודעת כפילות מציינת את מספר השורה', () => {
   assert.match(msg, /כבר בטבלה/);
   assert.match(msg, /שורה 10/);
   assert.match(msg, /קפה גרציאני/);
+});
+
+test('rowFrom מייצר קישור להורדת הקבלה', () => {
+  const row = rowFrom(normalize(raw), 'https://drive.google.com/uc?export=download&id=ABC');
+  const cell = row[HEADERS.indexOf('קבלה')];
+  assert.match(cell, /^=HYPERLINK\(/);
+  assert.match(cell, /export=download&id=ABC/);
+  assert.match(cell, /פתח/);
+});
+
+test('בלי קישור — התא נשאר ריק', () => {
+  assert.equal(rowFrom(normalize(raw))[HEADERS.indexOf('קבלה')], '');
 });

@@ -31,6 +31,7 @@ export const HEADERS = [
   'קטגוריה',        // E
   'הוזן במערכת',    // F — תיבת סימון. ✓ צובע את השורה
   'סומן בתאריך',    // G — נחתם אוטומטית כשמסמנים את F
+  'קבלה',           // H — קישור להורדת התמונה
 ];
 
 const COL_DATE = 0;
@@ -40,9 +41,10 @@ const COL_DOC = 3;
 const COL_CATEGORY = 4;
 const COL_DONE = 5;
 const COL_STAMP = 6;
+const COL_FILE = 7;
 
-// עמודות הסיכום, מימין לטבלה (I ו-J)
-const SUMMARY_COL = 8;   // I
+// עמודות הסיכום, מימין לטבלה עם עמודה ריקה מפרידה (J ו-K)
+const SUMMARY_COL = 9;   // J
 
 export function sheetsConfigured() {
   return !!(SHEET_ID && SA_EMAIL && SA_KEY);
@@ -62,7 +64,7 @@ export function sheetUrl(rowNumber) {
 /**
  * @param {object} r  מה ש-vision.js החזיר
  */
-export function rowFrom(r) {
+export function rowFrom(r, fileUrl = null) {
   const row = [];
   row[COL_DATE] = r.date || '';
   row[COL_VENDOR] = r.vendor || '';
@@ -72,6 +74,8 @@ export function rowFrom(r) {
   row[COL_CATEGORY] = r.category || '';
   row[COL_DONE] = false;   // תיבת סימון ריקה
   row[COL_STAMP] = '';     // מתמלא אוטומטית כשמסמנים
+  // לחיצה על הקישור מורידה את הקובץ ישירות, בלי מסך תצוגה של Drive
+  row[COL_FILE] = fileUrl ? `=HYPERLINK("${fileUrl}";"📎 פתח")` : '';
   return row;
 }
 
@@ -504,7 +508,7 @@ async function applyFormatting(token, gid) {
       },
     },
     // רוחב עמודות נוח
-    ...[[0, 100], [1, 170], [2, 120], [3, 130], [4, 130], [5, 120], [6, 150], [8, 150], [9, 120]].map(([i, px]) => ({
+    ...[[0, 100], [1, 170], [2, 120], [3, 130], [4, 130], [5, 120], [6, 150], [7, 90], [9, 150], [10, 120]].map(([i, px]) => ({
       updateDimensionProperties: {
         range: { sheetId: gid, dimension: 'COLUMNS', startIndex: i, endIndex: i + 1 },
         properties: { pixelSize: px },

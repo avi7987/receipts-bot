@@ -17,6 +17,7 @@ import {
 import { readReceipt, visionAvailable } from './vision.js';
 import { appendRow, rowFrom, sheetUrl, sheetsConfigured, stampChecked, findRow } from './sheets.js';
 import { saveReceipt, storageMode } from './storage.js';
+import { uploadReceipt, driveConfigured } from './drive.js';
 import * as state from './state.js';
 import { receiptMessage, notReceiptMessage, errorMessage, heDate, money } from './format.js';
 
@@ -130,10 +131,17 @@ async function handleReceipt(session, job) {
     date: data.date, vendor: data.vendor, total: data.total, id: msgId,
   });
 
+  // ── העלאה ל-Drive, כדי שתוכל למשוך את הקובץ מהשורה ──
+  const uploaded = await uploadReceipt(
+    media.base64,
+    media.mimetype,
+    driveFileName(data, media.mimetype),
+  );
+
   // ── שורה בגיליון ──
   let row = null;
   try {
-    row = await appendRow(rowFrom(data));
+    row = await appendRow(rowFrom(data, uploaded?.url || null));
   } catch (e) {
     failed++;
     await react(replyTo, '❌');
@@ -166,6 +174,19 @@ function cleanCaption(body) {
   if (/^\/9j\/|^iVBORw0|^data:image\//i.test(s)) return null;   // JPEG / PNG / data-URI
   if (/^[A-Za-z0-9+/=\s]{120,}$/.test(s)) return null;          // גוש base64 כללי
   return s;
+}
+
+// שם קובץ קריא, כדי שגם אחרי שלוש הורדות תדע איזה קובץ זה מה:
+// 2026-08-19_קפה-גרציאני_60.jpg
+function driveFileName(d, mimetype) {
+  const ext = String(mimetype).includes('pdf') ? 'pdf'
+    : String(mimetype).includes('png') ? 'png' : 'jpg';
+  const parts = [
+    d.date || new Date().toISOString().slice(0, 10),
+    d.vendor ? d.vendor.trim().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 40) : null,
+    d.total_with_tip !== null && d.total_with_tip !== undefined ? String(d.total_with_tip) : null,
+  ].filter(Boolean);
+  return `${parts.join('_')}.${ext}`;
 }
 
 // תיאור קצר לזיהוי כפילות: "רמי לוי, 87.40 ₪, 4.8.2026"
@@ -252,7 +273,7 @@ function preflight() {
 
 async function boot() {
   console.log('⏳ מאתחל את בוט הקבלות...');
-  console.log(`   node ${process.version} · AI: ${visionAvailable() ? 'gemini' : 'none'} · אחסון: ${storageMode()} · PORT=${PORT}`);
+  console.log(`   node ${process.version} · AI: ${visionAvailable() ? 'gemini' : 'none'} · אחסון: ${storageMode()} · Drive: ${driveConfigured() ? "מחובר" : "כבוי"} · PORT=${PORT}`);
   console.log(`   מצב: ${ONLY_FROM_ME ? 'רק תמונות ששלחתי אני' : 'תמונות של כל חבר בקבוצה'}`);
 
   for (const p of preflight()) console.warn(`⚠️  ${p}`);
