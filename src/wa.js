@@ -235,6 +235,16 @@ export async function downloadReceipt(msg) {
     if (DEBUG) console.log(`   ↩︎ downloadMedia של הספרייה נכשל (${e.message}), עובר לדרך העוקפת`);
   }
   if (!media?.data) media = await downloadViaInternals(msg);
+  return validateMedia(media);
+}
+
+/** הורדה לפי מזהה — המסלול של הסורק. */
+export async function downloadReceiptById(client, id) {
+  return validateMedia(await downloadMediaById(client, id));
+}
+
+/** בדיקת סוג וגודל. מחזיר null אם זה לא משהו שאפשר לקרוא. */
+function validateMedia(media) {
   if (!media?.data) return null;
 
   const mimetype = String(media.mimetype || '').split(';')[0].trim().toLowerCase();
@@ -248,6 +258,82 @@ export async function downloadReceipt(msg) {
   }
 
   return { base64: media.data, mimetype, bytes, filename: media.filename || null };
+}
+
+// ── סורק הקבוצה ─────────────────────────────────────────────────────
+//
+//  וואטסאפ לא תמיד דוחפת אירוע על תמונה שנשלחה — ראינו במו עינינו
+//  קבוצה שבה הטקסט מגיע והתמונות לא. לכן לא מסתמכים רק על אירועים:
+//  אחת לדקה סורקים את הקבוצה ומחפשים מדיה שטרם טופלה.
+/**
+ * מחזיר את פריטי המדיה האחרונים בקבוצה, מהחדש לישן.
+ * @returns {Promise<Array<{id,t,type,caption,fromMe}>>}
+ */
+export async function scanGroupMedia(client, groupId, limit = 15) {
+  const page = client?.pupPage;
+  if (!page || !groupId) return [];
+
+  try {
+    const found = await page.evaluate((gid, max) => {
+      let all = [];
+      try {
+        const col = window.require('WAWebMsgCollection')?.MsgCollection;
+        all = col?.getModelsArray?.() || [];
+      } catch { return []; }
+
+      const ser = (x) => {
+        if (!x) return '';
+        if (typeof x === 'string') return x;
+        if (x._serialized) return x._serialized;
+        const s = String(x);
+        return s.startsWith('[object') ? '' : s;
+      };
+
+      const clean = (s) => {
+        const t = String(s || '').trim();
+        if (!t || t.length > 400) return null;
+        if (/^\/9j\/|^iVBORw0|^data:image\//i.test(t)) return null;
+        if (/^[A-Za-z0-9+/=\s]{120,}$/.test(t)) return null;
+        return t;
+      };
+
+      return all
+        .filter((m) => ser(m?.id?.remote) === gid)
+        .filter((m) => m?.type === 'image' || m?.type === 'document')
+        .sort((a, b) => (b.t || 0) - (a.t || 0))
+        .slice(0, max)
+        .map((m) => ({
+          id: ser(m.id),
+          t: m.t || 0,
+          type: m.type,
+          caption: clean(m.caption || m.body),
+          fromMe: !!m.id?.fromMe,
+        }))
+        .filter((x) => x.id);
+    }, groupId, limit);
+
+    return Array.isArray(found) ? found : [];
+  } catch (e) {
+    if (DEBUG) console.log(`   🔍 סריקת הקבוצה נכשלה: ${e.message}`);
+    return [];
+  }
+}
+
+/** שליחת הודעה לקבוצה, כשאין לנו אובייקט הודעה להשיב לו. */
+export async function sendToGroup(session, text) {
+  if (!text || session.state !== 'ready' || !session.groupId) return null;
+  try {
+    const sent = await session.client.sendMessage(session.groupId, text);
+    const id = msgIdOf(sent);
+    if (id) {
+      session._sentIds.add(id);
+      if (session._sentIds.size > 500) session._sentIds.clear();
+    }
+    return sent;
+  } catch (e) {
+    console.error('שליחה לקבוצה נכשלה:', e.message || e);
+    return null;
+  }
 }
 
 // ── מזהה ההודעה ─────────────────────────────────────────────────────
@@ -293,8 +379,12 @@ export function msgIdOf(msg) {
 //  מוצאים את ההודעה דרך WAWebMsgCollection ומפעילים את אותה הורדה
 //  בדיוק — כולל הפענוח — ומחזירים base64.
 export async function downloadViaInternals(msg) {
-  const page = msg.client?.pupPage;
-  const id = msgIdOf(msg);
+  return downloadMediaById(msg.client, msgIdOf(msg));
+}
+
+/** אותו דבר, אבל לפי מזהה — בשביל הסורק, שאין לו אובייקט הודעה. */
+export async function downloadMediaById(client, id) {
+  const page = client?.pupPage;
   if (!page || !id) {
     if (DEBUG) console.log(`   ↩︎ אי אפשר להתחיל: page=${!!page} id=${id || '(ריק)'}`);
     return null;

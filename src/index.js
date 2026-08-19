@@ -10,7 +10,10 @@
 // =====================================================================
 import 'dotenv/config';
 import http from 'http';
-import { createSession, downloadReceipt, msgIdOf, updateOrReply } from './wa.js';
+import {
+  createSession, downloadReceipt, downloadReceiptById,
+  msgIdOf, updateOrReply, scanGroupMedia, sendToGroup,
+} from './wa.js';
 import { readReceipt, visionAvailable } from './vision.js';
 import { appendRow, rowFrom, sheetUrl, sheetsConfigured } from './sheets.js';
 import { saveReceipt, storageMode } from './storage.js';
@@ -27,7 +30,7 @@ const CATCHUP_HOURS = Number(process.env.CATCHUP_HOURS || 24);
 let processed = 0;
 let failed = 0;
 
-// ── טיפול בקבלה אחת ─────────────────────────────────────────────────
+// ── טיפול בקבלה שהגיעה כאירוע ───────────────────────────────────────
 async function onReceipt(session, msg) {
   const msgId = msgIdOf(msg) || null;
 
@@ -35,16 +38,30 @@ async function onReceipt(session, msg) {
   const ageHours = msg.timestamp ? (Date.now() - msg.timestamp * 1000) / 3600e3 : 0;
   if (ageHours > CATCHUP_HOURS) return;
 
+  return handleReceipt(session, {
+    msgId,
+    caption: cleanCaption(msg.body),
+    kind: msg.type,
+    replyTo: msg,
+    download: () => downloadReceipt(msg),
+  });
+}
+
+// ── הליבה: אותו טיפול, בין אם ההודעה הגיעה כאירוע ובין אם בסריקה ────
+async function handleReceipt(session, job) {
+  const { msgId, caption, kind, replyTo } = job;
+  const say = (text) => (replyTo ? session.reply(replyTo, text) : sendToGroup(session, text));
+
   if (state.seenMessage(msgId)) return;
 
   // ── הורדה ──
   let media;
   try {
-    media = await downloadReceipt(msg);
+    media = await job.download();
   } catch (e) {
     if (e.message === 'too-large') {
       state.rememberMessage(msgId);
-      await session.reply(msg, errorMessage('too-large'));
+      await say(errorMessage('too-large'));
       return;
     }
     throw e;
@@ -52,7 +69,7 @@ async function onReceipt(session, msg) {
   if (!media) {
     // סטיקר, וידאו, קובץ וורד וכו' — פשוט לא בשבילנו
     state.rememberMessage(msgId);
-    if (msg.type === 'document') await session.reply(msg, errorMessage('unsupported'));
+    if (kind === 'document') await say(errorMessage('unsupported'));
     return;
   }
 
@@ -61,34 +78,34 @@ async function onReceipt(session, msg) {
   const before = state.seenImage(hash);
   if (before) {
     state.rememberMessage(msgId);
-    await session.reply(msg, errorMessage('duplicate', before.label || null));
+    await say(errorMessage('duplicate', before.label || null));
     return;
   }
 
-  await react(msg, '⏳');
+  await react(replyTo, '⏳');
 
   // אישור מיידי — כדי שתדע שהקבלה נתפסה ולא נעלמה.
   // ההודעה הזו תתעדכן בהמשך לתוצאה הסופית, כך שלא נשארות שתי הודעות.
-  const ack = await session.reply(msg, '⏳ *קיבלתי קבלה* — קורא אותה...');
+  const ack = await say('⏳ *קיבלתי קבלה* — קורא אותה...');
 
   // ── קריאה ב-AI ──
   let data;
   try {
-    data = await readReceipt(media.base64, media.mimetype, cleanCaption(msg.body));
+    data = await readReceipt(media.base64, media.mimetype, caption);
   } catch (e) {
     failed++;
-    await react(msg, '❌');
+    await react(replyTo, '❌');
     state.rememberMessage(msgId);
-    const kind = e.message === 'missing-gemini-key' ? 'missing-gemini-key' : 'read-failed';
+    const why = e.message === 'missing-gemini-key' ? 'missing-gemini-key' : 'read-failed';
     console.error('קריאת הקבלה נכשלה:', e.message || e);
-    await updateOrReply(session, ack, msg, errorMessage(kind, kind === 'read-failed' ? short(e.message) : null));
+    await updateOrReply(session, ack, replyTo, errorMessage(why, why === 'read-failed' ? short(e.message) : null));
     return;
   }
 
   if (!data.is_receipt) {
-    await react(msg, '🤷');
+    await react(replyTo, '🤷');
     state.rememberMessage(msgId);
-    await updateOrReply(session, ack, msg, notReceiptMessage(data.not_receipt_reason));
+    await updateOrReply(session, ack, replyTo, notReceiptMessage(data.not_receipt_reason));
     return;
   }
 
@@ -103,18 +120,18 @@ async function onReceipt(session, msg) {
     row = await appendRow(rowFrom(data));
   } catch (e) {
     failed++;
-    await react(msg, '❌');
+    await react(replyTo, '❌');
     console.error('כתיבה לגיליון נכשלה:', e.message || e);
-    const kind = e.message === 'sheets-not-configured' ? 'sheets-not-configured' : 'sheet-failed';
-    await updateOrReply(session, ack, msg, errorMessage(kind, kind === 'sheet-failed' ? short(e.message) : null));
+    const why = e.message === 'sheets-not-configured' ? 'sheets-not-configured' : 'sheet-failed';
+    await updateOrReply(session, ack, replyTo, errorMessage(why, why === 'sheet-failed' ? short(e.message) : null));
     return;   // לא רושמים בזיכרון — כך שליחה חוזרת אחרי תיקון תעבוד
   }
 
   // ── סיום ──
   processed++;
   state.remember(msgId, hash, { label: labelOf(data), row });
-  await react(msg, '✅');
-  await updateOrReply(session, ack, msg, receiptMessage(data, { row, sheetUrl: sheetUrl(row) }));
+  await react(replyTo, '✅');
+  await updateOrReply(session, ack, replyTo, receiptMessage(data, { row, sheetUrl: sheetUrl(row) }));
 
   console.log(`🧾 ${data.vendor || '?'} · ${data.date || '?'} · ${data.total_with_tip ?? '?'} ${data.currency} → שורה ${row ?? '?'}`);
 }
@@ -135,9 +152,56 @@ function labelOf(d) {
   return [d.vendor, money(d.total_with_tip, d.currency), heDate(d.date)].filter(Boolean).join(', ');
 }
 
-// אימוג'י על ההודעה — נחמד שיהיה, לא נורא אם לא
+// אימוג'י על ההודעה — נחמד שיהיה, לא נורא אם לא.
+// בקבלה שנמצאה בסריקה אין לנו אובייקט הודעה, ואז פשוט מדלגים.
 async function react(msg, emoji) {
+  if (!msg) return;
   try { await msg.react(emoji); } catch { /* גרסאות מסוימות לא תומכות */ }
+}
+
+// ── הסורק ───────────────────────────────────────────────────────────
+//
+//  וואטסאפ לא תמיד שולחת אירוע על תמונה שנשלחה לקבוצה — נתקלנו בזה
+//  בפועל: הטקסט הגיע והתמונות לא. אז אחת לדקה סורקים את הקבוצה
+//  ומטפלים בכל מדיה שטרם עובדה. האירועים נשארים המסלול המהיר,
+//  והסריקה היא רשת הביטחון.
+async function pollGroup(session) {
+  if (session.state !== 'ready' || !session.groupId) return;
+
+  const items = await scanGroupMedia(session.client, session.groupId, 15);
+  if (!items.length) return;
+
+  const fresh = items.filter((x) => {
+    if (state.seenMessage(x.id)) return false;
+    const ageHours = x.t ? (Date.now() - x.t * 1000) / 3600e3 : 0;
+    return ageHours <= CATCHUP_HOURS;
+  });
+
+  if (!fresh.length) return;
+  console.log(`🔍 הסריקה מצאה ${fresh.length} פריטים שטרם טופלו (מתוך ${items.length} בקבוצה)`);
+
+  // מהישן לחדש, כדי שהשורות בגיליון יישמרו בסדר כרונולוגי
+  for (const item of fresh.reverse()) {
+    try {
+      await handleReceipt(session, {
+        msgId: item.id,
+        caption: item.caption,
+        kind: item.type,
+        replyTo: null,                  // אין אובייקט הודעה — נשלח הודעה רגילה לקבוצה
+        download: () => downloadReceiptById(session.client, item.id),
+      });
+    } catch (e) {
+      console.error('הסריקה נכשלה על פריט:', e.message || e);
+    }
+  }
+}
+
+function startPolling(session) {
+  const every = Math.max(20, Number(process.env.POLL_SECONDS || 60)) * 1000;
+  console.log(`🔍 סורק את הקבוצה כל ${every / 1000} שניות (רשת ביטחון לאירועים שלא מגיעים)`);
+  setInterval(() => {
+    pollGroup(session).catch((e) => console.error('סריקה:', e.message || e));
+  }, every);
 }
 
 function short(m) {
@@ -162,6 +226,12 @@ async function boot() {
 
   const session = createSession({ groupId: GROUP_ID, onlyFromMe: ONLY_FROM_ME, onReceipt });
   global.__session = session;
+
+  // הסורק מתחיל לרוץ ברגע שהחיבור מוכן
+  session.client.on('ready', () => {
+    setTimeout(() => pollGroup(session).catch(() => {}), 8000);   // סריקה ראשונה מיד
+    startPolling(session);
+  });
 
   await session.client.initialize().catch((e) => {
     console.error('❌ האתחול נכשל —', e.message || e);
