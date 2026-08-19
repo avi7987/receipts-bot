@@ -12,7 +12,8 @@
     "test": "node --test \"test/*.test.js\"",
     "probe": "node src/probe-version.js",
     "test-last": "node src/test-last.js",
-    "migrate": "node src/migrate-sheet.js"
+    "migrate": "node src/migrate-sheet.js",
+    "design": "node src/design-sheet.js"
   },
   "engines": {
     "node": ">=22"

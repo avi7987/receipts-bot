@@ -259,6 +259,7 @@ const T = colLetter(COL_TOTAL + 1);   // C
 const D = colLetter(COL_DONE + 1);    // F
 
 const SUMMARY = [
+  ['סיכום', ''],
   ['ממתין להזנה', `=SUMIF($${D}$2:$${D},FALSE,$${T}$2:$${T})`],
   ['כבר הוזן', `=SUMIF($${D}$2:$${D},TRUE,$${T}$2:$${T})`],
   ['סה"כ הכל', `=SUM($${T}$2:$${T})`],
@@ -449,18 +450,44 @@ async function applyFormatting(token, gid) {
         fields: 'gridProperties.frozenRowCount',
       },
     },
-    // כותרת מודגשת על רקע אפור
+    // כותרת כהה עם טקסט לבן — הפרדה ברורה מהנתונים
     {
       repeatCell: {
         range: { sheetId: gid, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: HEADERS.length },
         cell: {
           userEnteredFormat: {
-            backgroundColor: { red: 0.93, green: 0.93, blue: 0.93 },
-            textFormat: { bold: true },
+            backgroundColor: { red: 0.149, green: 0.196, blue: 0.219 },
+            textFormat: { bold: true, fontSize: 11, foregroundColor: { red: 1, green: 1, blue: 1 } },
             horizontalAlignment: 'CENTER',
+            verticalAlignment: 'MIDDLE',
           },
         },
-        fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)',
+        fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)',
+      },
+    },
+    {
+      updateDimensionProperties: {
+        range: { sheetId: gid, dimension: 'ROWS', startIndex: 0, endIndex: 1 },
+        properties: { pixelSize: 38 },
+        fields: 'pixelSize',
+      },
+    },
+    // יישור לפי סוג התוכן
+    ...[[COL_DATE, 'CENTER'], [COL_VENDOR, 'RIGHT'], [COL_TOTAL, 'RIGHT'], [COL_DOC, 'CENTER'],
+      [COL_CATEGORY, 'CENTER'], [COL_DONE, 'CENTER'], [COL_STAMP, 'CENTER'], [COL_FILE, 'CENTER'],
+    ].map(([i, a]) => ({
+      repeatCell: {
+        range: all(i, i + 1),
+        cell: { userEnteredFormat: { horizontalAlignment: a, verticalAlignment: 'MIDDLE' } },
+        fields: 'userEnteredFormat(horizontalAlignment,verticalAlignment)',
+      },
+    })),
+    // הסכום מודגש — זה המספר שהעין מחפשת
+    {
+      repeatCell: {
+        range: all(COL_TOTAL, COL_TOTAL + 1),
+        cell: { userEnteredFormat: { textFormat: { bold: true } } },
+        fields: 'userEnteredFormat.textFormat',
       },
     },
     // תאריך בפורמט ישראלי
