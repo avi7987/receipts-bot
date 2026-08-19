@@ -25,15 +25,24 @@ const API = 'https://sheets.googleapis.com/v4/spreadsheets';
 // כותרות הטבלה. הסדר כאן הוא הסדר בגיליון — אל תשנה בלי לעדכן את rowFrom.
 export const HEADERS = [
   'תאריך',          // A
-  'סכום כולל',      // B — כולל טיפ, אם היה
-  'מספר חשבונית',   // C
-  'הוזן במערכת',    // D — תיבת סימון. ✓ צובע את השורה
+  'ספק',            // B
+  'סכום כולל',      // C — כולל טיפ, אם היה
+  'מספר חשבונית',   // D
+  'קטגוריה',        // E
+  'הוזן במערכת',    // F — תיבת סימון. ✓ צובע את השורה
+  'סומן בתאריך',    // G — נחתם אוטומטית כשמסמנים את F
 ];
 
 const COL_DATE = 0;
-const COL_TOTAL = 1;
-const COL_DOC = 2;
-const COL_DONE = 3;
+const COL_VENDOR = 1;
+const COL_TOTAL = 2;
+const COL_DOC = 3;
+const COL_CATEGORY = 4;
+const COL_DONE = 5;
+const COL_STAMP = 6;
+
+// עמודות הסיכום, מימין לטבלה (I ו-J)
+const SUMMARY_COL = 8;   // I
 
 export function sheetsConfigured() {
   return !!(SHEET_ID && SA_EMAIL && SA_KEY);
@@ -56,10 +65,13 @@ export function sheetUrl(rowNumber) {
 export function rowFrom(r) {
   const row = [];
   row[COL_DATE] = r.date || '';
+  row[COL_VENDOR] = r.vendor || '';
   row[COL_TOTAL] = r.total_with_tip !== null && r.total_with_tip !== undefined ? r.total_with_tip : '';
   // מספר חשבונית הוא מזהה, לא מספר — הגרשה שומרת אפסים מובילים (0038412)
   row[COL_DOC] = r.doc_number ? `'${r.doc_number}` : '';
+  row[COL_CATEGORY] = r.category || '';
   row[COL_DONE] = false;   // תיבת סימון ריקה
+  row[COL_STAMP] = '';     // מתמלא אוטומטית כשמסמנים
   return row;
 }
 
@@ -156,6 +168,7 @@ async function ensureSetup(token) {
   }
 
   await ensureHeader(token);
+  await ensureSummary(token);
 
   // העיצוב מוחל פעם אחת בלבד — אחרת היינו מוסיפים כלל צביעה בכל הרצה
   if (!sheet.conditionalFormats?.length) {
@@ -184,6 +197,122 @@ async function ensureHeader(token) {
   });
   if (!put.ok) throw new Error(`Sheets header write ${put.status}: ${(await put.text()).slice(0, 300)}`);
   console.log('📄 נכתבה שורת הכותרות בגיליון.');
+}
+
+// ── בלוק הסיכום ─────────────────────────────────────────────────────
+//
+//  נוסחאות חיות בעמודות I/J. ברגע שמסמנים ✓ בשורה, הסכום שלה יורד
+//  מ"ממתין להזנה" ועובר ל"כבר הוזן" — בלי לגעת בכלום.
+const T = colLetter(COL_TOTAL + 1);   // C
+const D = colLetter(COL_DONE + 1);    // F
+
+const SUMMARY = [
+  ['ממתין להזנה', `=SUMIF($${D}$2:$${D},FALSE,$${T}$2:$${T})`],
+  ['כבר הוזן', `=SUMIF($${D}$2:$${D},TRUE,$${T}$2:$${T})`],
+  ['סה"כ הכל', `=SUM($${T}$2:$${T})`],
+  ['קבלות ממתינות', `=COUNTIF($${D}$2:$${D},FALSE)`],
+];
+
+async function ensureSummary(token) {
+  const col = colLetter(SUMMARY_COL + 1);        // I
+  const next = colLetter(SUMMARY_COL + 2);       // J
+  const range = encodeURIComponent(`${TAB}!${col}1:${next}${SUMMARY.length}`);
+
+  const res = await fetch(`${API}/${SHEET_ID}/values/${range}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!res.ok) return;                            // לא קריטי — לא מפילים על זה
+  const data = await res.json();
+  if (data.values?.length && data.values[0]?.some(Boolean)) return;   // כבר קיים
+
+  const put = await fetch(`${API}/${SHEET_ID}/values/${range}?valueInputOption=USER_ENTERED`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(20000),
+    body: JSON.stringify({ values: SUMMARY }),
+  });
+  if (!put.ok) return;
+
+  // עיצוב: תוויות מודגשות, סכומים בשקלים
+  await batchUpdate(token, [
+    {
+      repeatCell: {
+        range: {
+          sheetId: tabGid, startRowIndex: 0, endRowIndex: SUMMARY.length,
+          startColumnIndex: SUMMARY_COL, endColumnIndex: SUMMARY_COL + 1,
+        },
+        cell: { userEnteredFormat: { textFormat: { bold: true } } },
+        fields: 'userEnteredFormat.textFormat',
+      },
+    },
+    {
+      repeatCell: {
+        range: {
+          sheetId: tabGid, startRowIndex: 0, endRowIndex: 3,
+          startColumnIndex: SUMMARY_COL + 1, endColumnIndex: SUMMARY_COL + 2,
+        },
+        cell: { userEnteredFormat: { numberFormat: { type: 'CURRENCY', pattern: '#,##0.00 ₪' } } },
+        fields: 'userEnteredFormat.numberFormat',
+      },
+    },
+  ]).catch(() => {});
+  console.log('📊 נוסף בלוק הסיכום.');
+}
+
+// ── חותמת זמן על שורות שסומנו ───────────────────────────────────────
+//
+//  Google Sheets לא יודעת לרשום לבד מתי תא שונה. במקום להכריח אותך
+//  להתקין סקריפט בגיליון, הבוט בודק אחת לדקה: כל שורה שמסומנת ✓
+//  ואין לה חותמת — מקבלת אחת. פעם אחת, ואז לא נוגעים בה שוב.
+/** @returns {Promise<number>} כמה שורות נחתמו */
+export async function stampChecked() {
+  if (!sheetsConfigured()) return 0;
+
+  const token = await accessToken();
+  await ensureSetup(token);
+
+  const doneCol = colLetter(COL_DONE + 1);
+  const stampCol = colLetter(COL_STAMP + 1);
+  const range = encodeURIComponent(`${TAB}!${doneCol}2:${stampCol}`);
+
+  const res = await fetch(`${API}/${SHEET_ID}/values/${range}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!res.ok) throw new Error(`Sheets read ${res.status}`);
+  const rows = (await res.json()).values || [];
+
+  const updates = [];
+  rows.forEach((r, i) => {
+    const checked = String(r[0]).toUpperCase() === 'TRUE';
+    const stamp = r[COL_STAMP - COL_DONE];
+    if (checked && !stamp) {
+      updates.push({
+        range: `${TAB}!${stampCol}${i + 2}`,
+        values: [[nowInIsrael()]],
+      });
+    }
+  });
+  if (!updates.length) return 0;
+
+  const put = await fetch(`${API}/${SHEET_ID}/values:batchUpdate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(30000),
+    body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data: updates }),
+  });
+  if (!put.ok) throw new Error(`Sheets stamp ${put.status}: ${(await put.text()).slice(0, 200)}`);
+  return updates.length;
+}
+
+function nowInIsrael() {
+  const p = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Jerusalem',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(new Date()).reduce((a, x) => (a[x.type] = x.value, a), {});
+  return `${p.day}/${p.month}/${p.year} ${p.hour}:${p.minute}`;
 }
 
 // כל העיצוב במכה אחת. טווח בלי endRowIndex = כל השורות, גם העתידיות.
@@ -228,6 +357,14 @@ async function applyFormatting(token, gid) {
         fields: 'userEnteredFormat.numberFormat',
       },
     },
+    // חותמת הסימון — תאריך ושעה
+    {
+      repeatCell: {
+        range: all(COL_STAMP, COL_STAMP + 1),
+        cell: { userEnteredFormat: { numberFormat: { type: 'DATE_TIME', pattern: 'dd/MM/yyyy HH:mm' } } },
+        fields: 'userEnteredFormat.numberFormat',
+      },
+    },
     // תיבת הסימון עצמה מוחלת בנפרד, שורה-שורה, ב-addCheckbox.
     // אסור להחיל אותה כאן על כל העמודה: זה ממלא את הגיליון בתיבות
     // ריקות ומבלבל את גוגל לגבי היכן נגמרת הטבלה.
@@ -239,7 +376,7 @@ async function applyFormatting(token, gid) {
         rule: {
           ranges: [{ sheetId: gid, startRowIndex: 1, startColumnIndex: 0, endColumnIndex: HEADERS.length }],
           booleanRule: {
-            condition: { type: 'CUSTOM_FORMULA', values: [{ userEnteredValue: '=$D2=TRUE' }] },
+            condition: { type: 'CUSTOM_FORMULA', values: [{ userEnteredValue: '=$F2=TRUE' }] },
             format: {
               backgroundColor: { red: 0.85, green: 0.94, blue: 0.83 },
               textFormat: { foregroundColor: { red: 0.42, green: 0.46, blue: 0.42 } },
@@ -249,7 +386,7 @@ async function applyFormatting(token, gid) {
       },
     },
     // רוחב עמודות נוח
-    ...[[0, 110], [1, 130], [2, 150], [3, 130]].map(([i, px]) => ({
+    ...[[0, 100], [1, 170], [2, 120], [3, 130], [4, 130], [5, 120], [6, 150], [8, 150], [9, 120]].map(([i, px]) => ({
       updateDimensionProperties: {
         range: { sheetId: gid, dimension: 'COLUMNS', startIndex: i, endIndex: i + 1 },
         properties: { pixelSize: px },
@@ -334,6 +471,8 @@ const FIELD_HE = {
   total: 'סכום כולל',
   doc_number: 'מספר חשבונית',
   tip_extra: 'טיפ',
+  vendor: 'ספק',
+  category: 'קטגוריה',
 };
 
 export function hebField(f) {

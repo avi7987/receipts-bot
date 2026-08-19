@@ -15,7 +15,7 @@ import {
   msgIdOf, updateOrReply, scanGroupMedia, sendToGroup,
 } from './wa.js';
 import { readReceipt, visionAvailable } from './vision.js';
-import { appendRow, rowFrom, sheetUrl, sheetsConfigured } from './sheets.js';
+import { appendRow, rowFrom, sheetUrl, sheetsConfigured, stampChecked } from './sheets.js';
 import { saveReceipt, storageMode } from './storage.js';
 import * as state from './state.js';
 import { receiptMessage, notReceiptMessage, errorMessage, heDate, money } from './format.js';
@@ -196,11 +196,22 @@ async function pollGroup(session) {
   }
 }
 
+// חותמת זמן על שורות שסימנת בגיליון
+async function pollStamps() {
+  try {
+    const n = await stampChecked();
+    if (n) console.log(`🕒 נחתמו ${n} שורות שסומנו כהוזנו`);
+  } catch (e) {
+    console.error('חותמת זמן:', e.message || e);
+  }
+}
+
 function startPolling(session) {
   const every = Math.max(20, Number(process.env.POLL_SECONDS || 60)) * 1000;
-  console.log(`🔍 סורק את הקבוצה כל ${every / 1000} שניות (רשת ביטחון לאירועים שלא מגיעים)`);
+  console.log(`🔍 סורק את הקבוצה ואת הגיליון כל ${every / 1000} שניות`);
   setInterval(() => {
     pollGroup(session).catch((e) => console.error('סריקה:', e.message || e));
+    pollStamps();
   }, every);
 }
 

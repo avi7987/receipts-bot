@@ -108,9 +108,15 @@ test('normalize מכבד is_receipt=false', () => {
   assert.equal(r.not_receipt_reason, 'זו תמונה של חתול');
 });
 
+test('normalize מכריח קטגוריה מהרשימה הסגורה', () => {
+  assert.equal(normalize({ ...raw, category: 'המצאה כלשהי' }).category, 'אחר');
+  assert.equal(normalize({ ...raw, category: 'חניה' }).category, 'חניה');
+  assert.equal(normalize(raw).category, 'אחר');          // בלי קטגוריה בכלל
+});
+
 // ── בניית השורה לגיליון ─────────────────────────────────────────────
-test('הטבלה היא בדיוק 4 עמודות', () => {
-  assert.deepEqual(HEADERS, ['תאריך', 'סכום כולל', 'מספר חשבונית', 'הוזן במערכת']);
+test('הטבלה היא שבע עמודות בסדר הנכון', () => {
+  assert.deepEqual(HEADERS, ['תאריך', 'ספק', 'סכום כולל', 'מספר חשבונית', 'קטגוריה', 'הוזן במערכת', 'סומן בתאריך']);
 });
 
 test('rowFrom מייצר שורה באורך הכותרות', () => {
@@ -129,8 +135,16 @@ test('rowFrom שומר אפסים מובילים במספר החשבונית', (
   assert.equal(row[HEADERS.indexOf('מספר חשבונית')], "'0038412");
 });
 
-test('rowFrom מייצר תיבת סימון ריקה', () => {
-  assert.equal(rowFrom(normalize(raw))[HEADERS.indexOf('הוזן במערכת')], false);
+test('rowFrom מייצר תיבת סימון ריקה וחותמת ריקה', () => {
+  const row = rowFrom(normalize(raw));
+  assert.equal(row[HEADERS.indexOf('הוזן במערכת')], false);
+  assert.equal(row[HEADERS.indexOf('סומן בתאריך')], '');
+});
+
+test('rowFrom כותב ספק וקטגוריה', () => {
+  const row = rowFrom(normalize({ ...raw, category: 'מסעדה' }));
+  assert.equal(row[HEADERS.indexOf('ספק')], 'מסעדת הגליל בע"מ');
+  assert.equal(row[HEADERS.indexOf('קטגוריה')], 'מסעדה');
 });
 
 test('rowFrom משאיר תא ריק כשהשדה לא נקרא', () => {
@@ -141,7 +155,7 @@ test('rowFrom משאיר תא ריק כשהשדה לא נקרא', () => {
 
 test('colLetter ממיר מספר עמודה לאות', () => {
   assert.equal(colLetter(1), 'A');
-  assert.equal(colLetter(4), 'D');
+  assert.equal(colLetter(7), 'G');
   assert.equal(colLetter(27), 'AA');
 });
 

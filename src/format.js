@@ -48,6 +48,7 @@ export function receiptMessage(r, meta = {}) {
   }
 
   lines.push(r.doc_number ? `🧾 חשבונית ${r.doc_number}` : '🧾 _מספר החשבונית לא זוהה_');
+  if (r.category) lines.push(`🏷️ ${r.category}`);
 
   if (r.uncertain?.length) {
     lines.push('');

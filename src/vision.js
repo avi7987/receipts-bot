@@ -15,6 +15,23 @@ export function visionAvailable() {
   return !!GEMINI_KEY;
 }
 
+// הקטגוריות שהמודל רשאי לבחור מהן — רשימה סגורה, כדי שהטבלה תישאר
+// אחידה ואפשר יהיה לסנן ולסכם לפיה.
+export const CATEGORIES = [
+  'מסעדה',
+  'חניה',
+  'דלק',
+  'נסיעות ומוניות',
+  'טיסות',
+  'לינה',
+  'ציוד ומחשוב',
+  'תוכנה ומנויים',
+  'משרד וכיבוד',
+  'כנסים והדרכות',
+  'שילוח ודואר',
+  'אחר',
+];
+
 const PROMPT = `You are reading a business expense receipt or invoice, most often an Israeli one written in Hebrew.
 Extract the data exactly as printed. Return ONLY valid JSON, no markdown, in this exact shape:
 
@@ -27,6 +44,7 @@ Extract the data exactly as printed. Return ONLY valid JSON, no markdown, in thi
   "tip_extra": number or null,
   "currency": "ILS" | "USD" | "EUR" | "GBP" | other ISO code,
   "vendor": "business name as printed, or null",
+  "category": one of: ${CATEGORIES.map((c) => `"${c}"`).join(', ')},
   "uncertain": ["names of fields above you could not read confidently"]
 }
 
@@ -38,10 +56,11 @@ RULES — follow every one of them:
 5. "tip_extra" is ONLY for a tip that the person states in their note and that is NOT already part of "total" — typically a cash tip left on the table. If no such note exists, set it to null. Never guess a tip, and never move a printed tip here.
 6. "doc_number" is the invoice/receipt number (חשבונית מס' / קבלה מס' / מספר מסמך). Keep leading zeros exactly as printed. It is NOT the credit-card approval number (מספר אישור), NOT the terminal number, and NOT the business's ח.פ.
 7. ₪ / ש"ח / שקל / NIS all mean currency "ILS". If no currency is shown anywhere and the text is Hebrew, assume "ILS" and do NOT mark it uncertain.
-8. "vendor" is the business that was PAID — usually the largest name at the top, near the ח.פ. It is not the customer, and not the credit card company. It is used only for the confirmation message, not for the table.
-9. If the picture is not a receipt or invoice at all (a photo, a screenshot of a chat, a blurry unreadable page), set "is_receipt": false, explain shortly in Hebrew in "not_receipt_reason", and leave every other field null.
-10. If the picture IS a receipt but is too blurry/cropped to read a specific field, still return the fields you can read, and list the rest in "uncertain".
-11. Output nothing except the JSON object.`;
+8. "vendor" is the business that was PAID — usually the largest name at the top, near the ח.פ. It is not the customer, and not the credit card company. Keep it short: the business name only, without the legal suffix (בע"מ) and without branch details.
+9. "category": pick the single best fit from the closed list above, based on what was actually bought. A café or restaurant bill is "מסעדה"; a parking garage or Pango is "חניה"; a gas station is "דלק"; taxi, bus or train is "נסיעות ומוניות". If genuinely unclear, use "אחר" — do not invent a category outside the list.
+10. If the picture is not a receipt or invoice at all (a photo, a screenshot of a chat, a blurry unreadable page), set "is_receipt": false, explain shortly in Hebrew in "not_receipt_reason", and leave every other field null.
+11. If the picture IS a receipt but is too blurry/cropped to read a specific field, still return the fields you can read, and list the rest in "uncertain".
+12. Output nothing except the JSON object.`;
 
 /**
  * קורא קבלה ומחזיר אובייקט מובנה, או זורק שגיאה.
@@ -148,6 +167,7 @@ export function normalize(j) {
     tip_extra: num(j.tip_extra),
     currency: (str(j.currency) || 'ILS').toUpperCase().slice(0, 3),
     vendor: str(j.vendor),
+    category: CATEGORIES.includes(str(j.category)) ? str(j.category) : 'אחר',
     total_with_tip: null,
     uncertain: [],
   };
