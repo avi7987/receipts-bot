@@ -73,23 +73,7 @@ async function handleReceipt(session, job) {
     return;
   }
 
-  // ── כפילות: אותה תמונה בדיוק ──
-  //
-  //  הזיכרון לבדו לא מספיק: אם מחקת את השורה מהגיליון ושלחת את
-  //  הקבלה שוב, הכוונה שלך ברורה. לכן מאשרים מול הגיליון עצמו,
-  //  והוא הקובע.
   const hash = state.hashOf(media.base64);
-  const before = state.seenImage(hash);
-  if (before) {
-    const stillThere = await rowStillExists(before);
-    if (stillThere) {
-      state.rememberMessage(msgId);
-      await say(errorMessage('duplicate', before.label || null));
-      return;
-    }
-    console.log('♻️  הקבלה הייתה בזיכרון אבל השורה כבר לא בגיליון — קולט מחדש');
-    state.forgetImage(hash);
-  }
 
   await react(replyTo, '⏳');
 
@@ -115,6 +99,29 @@ async function handleReceipt(session, job) {
     await react(replyTo, '🤷');
     state.rememberMessage(msgId);
     await updateOrReply(session, ack, replyTo, notReceiptMessage(data.not_receipt_reason));
+    return;
+  }
+
+  // ── כפילות: נקבעת מול הגיליון בלבד ──
+  //
+  //  מכוון: לא שואלים את הזיכרון המקומי. הוא לא יודע שמחקת שורה,
+  //  וזה בדיוק מה שגרם לבוט לסרב לקלוט קבלה שכבר לא הייתה בטבלה.
+  //  הגיליון הוא מקור האמת היחיד — ולכן קוראים את הקבלה קודם, ורק
+  //  אז בודקים. זה עולה קריאת AI אחת מיותרת בכפילות אמיתית, וזה
+  //  מחיר זול בהרבה מהתנהגות שאי אפשר לעקוף.
+  const key = { doc_number: data.doc_number, date: data.date, total: data.total_with_tip };
+  let existing = null;
+  try {
+    existing = await findRow(key);
+  } catch (e) {
+    // בספק לא חוסמים — שורה חסרה עדיפה על מבוי סתום
+    console.error('בדיקת כפילות נכשלה, ממשיך:', e.message || e);
+  }
+  if (existing) {
+    state.remember(msgId, hash, { label: labelOf(data), row: existing, key });
+    await react(replyTo, '♻️');
+    await updateOrReply(session, ack, replyTo, errorMessage('duplicate', labelOf(data), existing));
+    console.log(`♻️  ${data.vendor || '?'} כבר קיימת בשורה ${existing}`);
     return;
   }
 
@@ -166,20 +173,6 @@ function labelOf(d) {
   return [d.vendor, money(d.total_with_tip, d.currency), heDate(d.date)].filter(Boolean).join(', ');
 }
 
-/**
- * האם השורה שנרשמה בזיכרון עדיין קיימת בגיליון?
- * ברירת המחדל בספק היא "כן" — עדיף לומר "כבר קלטתי" מאשר לכפול שורה
- * רק בגלל תקלת רשת רגעית.
- */
-async function rowStillExists(before) {
-  if (!before?.key) return true;        // רשומה ישנה, בלי מזהים לבדיקה
-  try {
-    return (await findRow(before.key)) !== null;
-  } catch (e) {
-    console.error('בדיקת השורה בגיליון נכשלה:', e.message || e);
-    return true;
-  }
-}
 
 // אימוג'י על ההודעה — נחמד שיהיה, לא נורא אם לא.
 // בקבלה שנמצאה בסריקה אין לנו אובייקט הודעה, ואז פשוט מדלגים.

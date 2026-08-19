@@ -68,7 +68,7 @@ export function notReceiptMessage(reason) {
 }
 
 /** כשל אמיתי */
-export function errorMessage(kind, detail) {
+export function errorMessage(kind, detail, row = null) {
   switch (kind) {
     case 'missing-gemini-key':
       return '⚙️ חסר מפתח ה-AI (GEMINI_API_KEY). בלעדיו אני לא יכול לקרוא קבלות.';
@@ -79,7 +79,8 @@ export function errorMessage(kind, detail) {
     case 'unsupported':
       return '🤔 אני יודע לקרוא צילומים (JPG/PNG) וקבצי PDF. הקובץ הזה בפורמט אחר.';
     case 'duplicate':
-      return `♻️ את הקבלה הזו כבר קלטתי${detail ? ` (${detail})` : ''} — לא הוספתי שורה כפולה.`;
+      return `♻️ *הקבלה כבר בטבלה*${detail ? `\n${detail}` : ''}`
+        + `${row ? `\n📊 שורה ${row}` : ''}\n\n_לא הוספתי שורה כפולה._`;
     case 'read-failed':
       return `😕 לא הצלחתי לקרוא את הקבלה.${detail ? `\n_${detail}_` : ''}\nנסה לשלוח אותה שוב.`;
     case 'sheet-failed':

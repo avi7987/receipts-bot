@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 
 import { normalize, num, isoDate, dateLooksSane, extractJson } from '../src/vision.js';
 import { rowFrom, HEADERS, colLetter, hebField, normDoc, numOf, sameDate } from '../src/sheets.js';
-import { money, heDate, receiptMessage } from '../src/format.js';
+import { money, heDate, receiptMessage, errorMessage } from '../src/format.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -212,4 +212,11 @@ test('sameDate משווה תאריך ישראלי מול ISO', () => {
   assert.equal(sameDate('3/8/2026', '2026-08-03'), true);     // בלי אפסים מובילים
   assert.equal(sameDate('03/08/2026', '2026-03-08'), false);  // לא מתבלבל בין יום לחודש
   assert.equal(sameDate('', '2026-08-03'), false);
+});
+
+test('הודעת כפילות מציינת את מספר השורה', () => {
+  const msg = errorMessage('duplicate', 'קפה גרציאני, 60.00 ₪, 19.8.2026', 10);
+  assert.match(msg, /כבר בטבלה/);
+  assert.match(msg, /שורה 10/);
+  assert.match(msg, /קפה גרציאני/);
 });
