@@ -101,11 +101,59 @@ export async function appendRow(values) {
   });
   if (!res.ok) throw new Error(`Sheets write ${res.status}: ${(await res.text()).slice(0, 300)}`);
 
-  // תיבת הסימון מוחלת על השורה החדשה בלבד, כדי שהגיליון לא יתמלא
+  // הטבלה תמיד ממוינת לפי תאריך הקבלה, לא לפי סדר הצילום.
+  // אחרי המיון השורה זזה, ולכן מאתרים מחדש איפה היא נחתה.
+  let finalRow = row;
+  try {
+    await sortByDate(token, row);
+    const found = await findRowWith(token, {
+      doc_number: normDoc(values[COL_DOC]),
+      date: values[COL_DATE] || null,
+      total: numOf(values[COL_TOTAL]),
+    });
+    if (found) finalRow = found;
+  } catch (e) {
+    console.error('⚠️  מיון לפי תאריך נכשל (השורה נכתבה בכל זאת):', e.message);
+  }
+
+  // תיבת הסימון מוחלת על טווח הנתונים בלבד, כדי שהגיליון לא יתמלא
   // באלפי תיבות ריקות מתחת לשורה האחרונה
   await addCheckbox(token, row).catch((e) => console.error('⚠️  תיבת הסימון:', e.message));
 
-  return row;
+  return finalRow;
+}
+
+/**
+ * ממיין את שורות הנתונים לפי עמודת התאריך, מהישן לחדש.
+ * הטווח מוגבל ל-A..G בלבד — בלוק הסיכום ב-I/J לא זז.
+ */
+async function sortByDate(token, lastRow) {
+  if (lastRow < 3) return;            // שורה אחת בלבד — אין מה למיין
+
+  await batchUpdate(token, [{
+    sortRange: {
+      range: {
+        sheetId: tabGid,
+        startRowIndex: 1,             // אחרי הכותרת
+        endRowIndex: lastRow,
+        startColumnIndex: 0,
+        endColumnIndex: HEADERS.length,
+      },
+      sortSpecs: [{ dimensionIndex: COL_DATE, sortOrder: 'ASCENDING' }],
+    },
+  }]);
+
+  // המיון מזיז תאים; מוודאים שתיבות הסימון עדיין על כל טווח הנתונים
+  await batchUpdate(token, [{
+    setDataValidation: {
+      range: {
+        sheetId: tabGid,
+        startRowIndex: 1, endRowIndex: lastRow,
+        startColumnIndex: COL_DONE, endColumnIndex: COL_DONE + 1,
+      },
+      rule: { condition: { type: 'BOOLEAN' }, showCustomUi: true },
+    },
+  }]);
 }
 
 /** השורה הפנויה הראשונה — לפי תוכן בלבד. לעולם לא מעל שורת הכותרת. */
@@ -271,9 +319,14 @@ async function ensureSummary(token) {
  */
 export async function findRow(key) {
   if (!key || !sheetsConfigured()) return null;
-
   const token = await accessToken();
   await ensureSetup(token);
+  return findRowWith(token, key);
+}
+
+/** אותו חיפוש, עם טוקן קיים — לשימוש פנימי אחרי כתיבה ומיון. */
+async function findRowWith(token, key) {
+  if (!key) return null;
 
   const last = colLetter(HEADERS.length);
   const res = await fetch(`${API}/${SHEET_ID}/values/${encodeURIComponent(`${TAB}!A2:${last}`)}`, {
