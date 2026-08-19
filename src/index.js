@@ -10,14 +10,15 @@
 // =====================================================================
 import 'dotenv/config';
 import http from 'http';
+import fs from 'fs';
 import {
   createSession, downloadReceipt, downloadReceiptById,
   msgIdOf, updateOrReply, scanGroupMedia, sendToGroup,
 } from './wa.js';
 import { readReceipt, visionAvailable } from './vision.js';
 import { appendRow, rowFrom, sheetUrl, sheetsConfigured, stampChecked, findRow } from './sheets.js';
-import { saveReceipt, storageMode } from './storage.js';
-import { uploadReceipt, driveConfigured } from './drive.js';
+import { saveReceipt, storageMode, saveForServing, resolveServed, servingConfigured } from './storage.js';
+
 import * as state from './state.js';
 import { receiptMessage, notReceiptMessage, errorMessage, heDate, money } from './format.js';
 
@@ -131,17 +132,13 @@ async function handleReceipt(session, job) {
     date: data.date, vendor: data.vendor, total: data.total, id: msgId,
   });
 
-  // ── העלאה ל-Drive, כדי שתוכל למשוך את הקובץ מהשורה ──
-  const uploaded = await uploadReceipt(
-    media.base64,
-    media.mimetype,
-    driveFileName(data, media.mimetype),
-  );
+  // ── עותק להגשה, כדי שתוכל למשוך את הקובץ מהשורה בגיליון ──
+  const served = saveForServing(media.base64, media.mimetype, receiptFileName(data, media.mimetype));
 
   // ── שורה בגיליון ──
   let row = null;
   try {
-    row = await appendRow(rowFrom(data, uploaded?.url || null));
+    row = await appendRow(rowFrom(data, served?.url || null));
   } catch (e) {
     failed++;
     await react(replyTo, '❌');
@@ -178,7 +175,7 @@ function cleanCaption(body) {
 
 // שם קובץ קריא, כדי שגם אחרי שלוש הורדות תדע איזה קובץ זה מה:
 // 2026-08-19_קפה-גרציאני_60.jpg
-function driveFileName(d, mimetype) {
+function receiptFileName(d, mimetype) {
   const ext = String(mimetype).includes('pdf') ? 'pdf'
     : String(mimetype).includes('png') ? 'png' : 'jpg';
   const parts = [
@@ -273,7 +270,7 @@ function preflight() {
 
 async function boot() {
   console.log('⏳ מאתחל את בוט הקבלות...');
-  console.log(`   node ${process.version} · AI: ${visionAvailable() ? 'gemini' : 'none'} · אחסון: ${storageMode()} · Drive: ${driveConfigured() ? "מחובר" : "כבוי"} · PORT=${PORT}`);
+  console.log(`   node ${process.version} · AI: ${visionAvailable() ? 'gemini' : 'none'} · אחסון: ${storageMode()} · קישורים: ${servingConfigured() ? "פעיל" : "כבוי"} · PORT=${PORT}`);
   console.log(`   מצב: ${ONLY_FROM_ME ? 'רק תמונות ששלחתי אני' : 'תמונות של כל חבר בקבוצה'}`);
 
   for (const p of preflight()) console.warn(`⚠️  ${p}`);
@@ -293,8 +290,39 @@ async function boot() {
   });
 }
 
-// ── עמוד בריאות (בשביל הענן) — בלי שום מידע רגיש ────────────────────
+// ── שרת קטן: עמוד בריאות + הורדת קבלות ──────────────────────────────
+//
+//  שתי נקודות בלבד. אין דפדוף בתיקייה, אין רשימת קבצים, ואין שום
+//  דרך להגיע לקובץ בלי לדעת את המזהה בן 32 התווים שלו.
 http.createServer((req, res) => {
+  const url = new URL(req.url, 'http://localhost');
+
+  // הורדת קבלה: /r/<מזהה>.jpg
+  if (url.pathname.startsWith('/r/')) {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.writeHead(405).end();
+      return;
+    }
+    const file = resolveServed(decodeURIComponent(url.pathname.slice(3)));
+    if (!file) {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('לא נמצא');
+      return;
+    }
+    // filename* מקודד לפי RFC 5987 — בלעדיו שם קובץ בעברית נשבר
+    res.writeHead(200, {
+      'Content-Type': file.mime,
+      'Content-Length': file.size,
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+      'Cache-Control': 'private, max-age=86400',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    if (req.method === 'HEAD') { res.end(); return; }
+    fs.createReadStream(file.path).pipe(res);
+    return;
+  }
+
+  // כל השאר — עמוד בריאות, בלי שום מידע רגיש
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({
     ok: true,
@@ -303,7 +331,7 @@ http.createServer((req, res) => {
     processed,
     failed,
   }));
-}).listen(PORT, () => console.log(`🌐 עמוד בריאות על פורט ${PORT}`));
+}).listen(PORT, () => console.log(`🌐 שרת על פורט ${PORT} (בריאות + הורדת קבלות)`));
 
 process.on('unhandledRejection', (e) => console.error('unhandledRejection:', e));
 process.on('uncaughtException', (e) => console.error('uncaughtException:', e));

@@ -12,6 +12,7 @@
 import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 
 const MODE = (process.env.STORAGE || 'local').toLowerCase();
 const DIR = process.env.RECEIPTS_DIR || './receipts';
@@ -22,6 +23,72 @@ const SB_BUCKET = process.env.SUPABASE_BUCKET || 'receipts';
 export function storageMode() {
   if (MODE === 'supabase' && !(SB_URL && SB_KEY)) return 'none';
   return MODE;
+}
+
+// ── הגשה מהשרת עצמו ─────────────────────────────────────────────────
+//
+//  התמונות כבר יושבות על השרת, ולשרת יש כתובת ציבורית. במקום להוסיף
+//  ספק אחסון חיצוני, מגישים אותן ישירות — עם שם קובץ שנגזר מתוכן
+//  התמונה ומסוד מקומי, כך שאי אפשר לנחש כתובת של קבלה אחרת.
+//
+//  שם התצוגה נשמר בקובץ נלווה, כדי שההורדה תקבל שם קריא
+//  (2026-08-19_קפה-גרציאני_60.jpg) ולא את המזהה האקראי.
+const PUBLIC_BASE = (process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
+const LINK_SECRET = process.env.LINK_SECRET || '';
+
+export function servingConfigured() {
+  return !!(PUBLIC_BASE && LINK_SECRET);
+}
+
+/** מזהה יציב לכל תמונה — אותה תמונה תמיד תקבל אותו מזהה */
+export function tokenFor(base64) {
+  return crypto.createHash('sha256').update(LINK_SECRET + base64).digest('hex').slice(0, 32);
+}
+
+/**
+ * שומר עותק להגשה ומחזיר { token, url }, או null.
+ * לעולם לא זורק — כישלון כאן לא אמור להפיל קליטת קבלה.
+ */
+export function saveForServing(base64, mimetype, displayName) {
+  if (!servingConfigured()) return null;
+  try {
+    const dir = path.resolve(DIR, 'public');
+    fs.mkdirSync(dir, { recursive: true });
+
+    const token = tokenFor(base64);
+    const ext = EXT[String(mimetype).toLowerCase()] || 'bin';
+    fs.writeFileSync(path.join(dir, `${token}.${ext}`), Buffer.from(base64, 'base64'));
+    fs.writeFileSync(
+      path.join(dir, `${token}.json`),
+      JSON.stringify({ name: displayName, mime: mimetype, ext }),
+    );
+
+    return { token, url: `${PUBLIC_BASE}/r/${token}.${ext}` };
+  } catch (e) {
+    console.error('⚠️  שמירת עותק להגשה נכשלה:', e.message || e);
+    return null;
+  }
+}
+
+/** מאתר קובץ להגשה לפי המזהה שהתקבל בכתובת. */
+export function resolveServed(fileName) {
+  // רק מזהה בן 32 תווים הקסדצימליים עם סיומת מוכרת — שום נתיב אחר
+  const m = /^([0-9a-f]{32})\.(jpg|png|webp|heic|heif|pdf)$/.exec(String(fileName || ''));
+  if (!m) return null;
+
+  const dir = path.resolve(DIR, 'public');
+  const file = path.join(dir, `${m[1]}.${m[2]}`);
+  if (!file.startsWith(dir) || !fs.existsSync(file)) return null;
+
+  let meta = {};
+  try { meta = JSON.parse(fs.readFileSync(path.join(dir, `${m[1]}.json`), 'utf8')); } catch { /* לא קריטי */ }
+
+  return {
+    path: file,
+    size: fs.statSync(file).size,
+    mime: meta.mime || 'application/octet-stream',
+    name: meta.name || `${m[1]}.${m[2]}`,
+  };
 }
 
 const EXT = {
