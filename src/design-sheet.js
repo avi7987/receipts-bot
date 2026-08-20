@@ -66,12 +66,12 @@ const N = HEADERS.length;                 // 8 עמודות
 console.log(`לשונית "${TAB}" · ${rowsA.length} שורות נתונים\n`);
 
 // ── ניקוי שאריות הסיכום הישן ────────────────────────────────────────
-await fetch(`${API}/${SHEET_ID}/values/${R('I1:L10')}:clear`, { method: 'POST', headers: jauth, body: '{}' });
+await fetch(`${API}/${SHEET_ID}/values/${R('J1:N12')}:clear`, { method: 'POST', headers: jauth, body: '{}' });
 
 // ── כרטיס הסיכום, במקומו החדש ───────────────────────────────────────
-const T = 'C';   // עמודת הסכום
-const D = 'F';   // עמודת הסימון
-await fetch(`${API}/${SHEET_ID}/values/${R('J1:K5')}?valueInputOption=USER_ENTERED`, {
+const T = 'D';   // עמודת הסכום
+const D = 'G';   // עמודת הסימון
+await fetch(`${API}/${SHEET_ID}/values/${R('K1:L5')}?valueInputOption=USER_ENTERED`, {
   method: 'PUT', headers: jauth,
   body: JSON.stringify({
     values: [
@@ -159,25 +159,26 @@ const fmt = (col, numberFormat, align) => req.push({
   },
 });
 fmt(0, { type: 'DATE', pattern: 'dd/MM/yyyy' }, 'CENTER');            // תאריך
-fmt(1, null, 'RIGHT');                                                // ספק
-fmt(2, { type: 'CURRENCY', pattern: '#,##0.00 ₪' }, 'RIGHT');         // סכום
-fmt(3, null, 'CENTER');                                               // מספר חשבונית
-fmt(4, null, 'CENTER');                                               // קטגוריה
-fmt(5, null, 'CENTER');                                               // תיבת סימון
-fmt(6, { type: 'DATE_TIME', pattern: 'dd/MM/yyyy HH:mm' }, 'CENTER'); // חותמת
-fmt(7, null, 'CENTER');                                               // קישור
+fmt(1, { type: 'DATE_TIME', pattern: 'HH:mm' }, 'CENTER');            // שעת הקבלה
+fmt(2, null, 'RIGHT');                                                // ספק
+fmt(3, { type: 'CURRENCY', pattern: '#,##0.00 ₪' }, 'RIGHT');         // סכום
+fmt(4, null, 'CENTER');                                               // מספר חשבונית
+fmt(5, null, 'CENTER');                                               // קטגוריה
+fmt(6, null, 'CENTER');                                               // תיבת סימון
+fmt(7, { type: 'DATE_TIME', pattern: 'dd/MM/yyyy HH:mm' }, 'CENTER'); // חותמת הסימון
+fmt(8, null, 'CENTER');                                               // קישור
 
 // הסכום מודגש — זה המספר שהעין מחפשת
 req.push({
   repeatCell: {
-    range: { sheetId: gid, startRowIndex: 1, startColumnIndex: 2, endColumnIndex: 3 },
+    range: { sheetId: gid, startRowIndex: 1, startColumnIndex: 3, endColumnIndex: 4 },
     cell: { userEnteredFormat: { textFormat: { bold: true, fontSize: 10 } } },
     fields: 'userEnteredFormat.textFormat',
   },
 });
 
 // רוחבי עמודות
-[[0, 105], [1, 200], [2, 125], [3, 140], [4, 130], [5, 110], [6, 145], [7, 80], [8, 28], [9, 155], [10, 130]]
+[[0, 100], [1, 70], [2, 190], [3, 125], [4, 135], [5, 120], [6, 110], [7, 145], [8, 80], [9, 26], [10, 155], [11, 130]]
   .forEach(([i, px]) => req.push({
     updateDimensionProperties: {
       range: { sheetId: gid, dimension: 'COLUMNS', startIndex: i, endIndex: i + 1 },
@@ -205,7 +206,7 @@ req.push({
     rule: {
       ranges: [{ sheetId: gid, startRowIndex: 1, startColumnIndex: 0, endColumnIndex: N }],
       booleanRule: {
-        condition: { type: 'CUSTOM_FORMULA', values: [{ userEnteredValue: '=$F2=TRUE' }] },
+        condition: { type: 'CUSTOM_FORMULA', values: [{ userEnteredValue: '=$G2=TRUE' }] },
         format: { backgroundColor: DONE_BG, textFormat: { foregroundColor: DONE_INK } },
       },
     },
@@ -213,10 +214,10 @@ req.push({
 });
 
 // ── כרטיס הסיכום ────────────────────────────────────────────────────
-req.push({ mergeCells: { range: range(0, 1, 9, 11), mergeType: 'MERGE_ALL' } });
+req.push({ mergeCells: { range: range(0, 1, 10, 12), mergeType: 'MERGE_ALL' } });
 req.push({
   repeatCell: {
-    range: range(0, 1, 9, 11),
+    range: range(0, 1, 10, 12),
     cell: {
       userEnteredFormat: {
         backgroundColor: INK,
@@ -229,7 +230,7 @@ req.push({
 });
 req.push({
   repeatCell: {
-    range: range(1, 5, 9, 10),
+    range: range(1, 5, 11, 12),
     cell: {
       userEnteredFormat: {
         backgroundColor: CARD,
@@ -242,7 +243,7 @@ req.push({
 });
 req.push({
   repeatCell: {
-    range: range(1, 4, 10, 11),
+    range: range(1, 4, 11, 12),
     cell: {
       userEnteredFormat: {
         backgroundColor: CARD,
@@ -256,7 +257,7 @@ req.push({
 });
 req.push({
   repeatCell: {
-    range: range(4, 5, 10, 11),
+    range: range(4, 5, 11, 12),
     cell: {
       userEnteredFormat: {
         backgroundColor: CARD,
@@ -272,7 +273,7 @@ req.push({
   const solid = { style: 'SOLID', color: LINE };
   req.push({
     updateBorders: {
-      range: range(0, 5, 9, 11),
+      range: range(0, 5, 10, 12),
       innerHorizontal: solid, innerVertical: solid,
       top: solid, bottom: solid, left: solid, right: solid,
     },

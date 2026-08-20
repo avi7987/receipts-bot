@@ -25,26 +25,28 @@ const API = 'https://sheets.googleapis.com/v4/spreadsheets';
 // כותרות הטבלה. הסדר כאן הוא הסדר בגיליון — אל תשנה בלי לעדכן את rowFrom.
 export const HEADERS = [
   'תאריך',          // A
-  'ספק',            // B
-  'סכום כולל',      // C — כולל טיפ, אם היה
-  'מספר חשבונית',   // D
-  'קטגוריה',        // E
-  'הוזן במערכת',    // F — תיבת סימון. ✓ צובע את השורה
-  'סומן בתאריך',    // G — נחתם אוטומטית כשמסמנים את F
-  'קבלה',           // H — קישור להורדת התמונה
+  'שעה',            // B — השעה שמודפסת על הקבלה
+  'ספק',            // C
+  'סכום כולל',      // D — כולל טיפ, אם היה
+  'מספר חשבונית',   // E
+  'קטגוריה',        // F
+  'הוזן במערכת',    // G — תיבת סימון. ✓ צובע את השורה
+  'סומן בתאריך',    // H — נחתם אוטומטית כשמסמנים
+  'קבלה',           // I — קישור להורדת התמונה
 ];
 
 const COL_DATE = 0;
-const COL_VENDOR = 1;
-const COL_TOTAL = 2;
-const COL_DOC = 3;
-const COL_CATEGORY = 4;
-const COL_DONE = 5;
-const COL_STAMP = 6;
-const COL_FILE = 7;
+const COL_TIME = 1;
+const COL_VENDOR = 2;
+const COL_TOTAL = 3;
+const COL_DOC = 4;
+const COL_CATEGORY = 5;
+const COL_DONE = 6;
+const COL_STAMP = 7;
+const COL_FILE = 8;
 
-// עמודות הסיכום, מימין לטבלה עם עמודה ריקה מפרידה (J ו-K)
-const SUMMARY_COL = 9;   // J
+// עמודות הסיכום, מימין לטבלה עם עמודה ריקה מפרידה (K ו-L)
+const SUMMARY_COL = 10;   // K
 
 export function sheetsConfigured() {
   return !!(SHEET_ID && SA_EMAIL && SA_KEY);
@@ -67,6 +69,7 @@ export function sheetUrl(rowNumber) {
 export function rowFrom(r, fileUrl = null) {
   const row = [];
   row[COL_DATE] = r.date || '';
+  row[COL_TIME] = r.time || '';
   row[COL_VENDOR] = r.vendor || '';
   row[COL_TOTAL] = r.total_with_tip !== null && r.total_with_tip !== undefined ? r.total_with_tip : '';
   // מספר חשבונית הוא מזהה, לא מספר — הגרשה שומרת אפסים מובילים (0038412)
@@ -143,7 +146,11 @@ async function sortByDate(token, lastRow) {
         startColumnIndex: 0,
         endColumnIndex: HEADERS.length,
       },
-      sortSpecs: [{ dimensionIndex: COL_DATE, sortOrder: 'ASCENDING' }],
+      // תאריך ואז שעה — כך שתי קבלות מאותו יום נשמרות בסדר שקרה בפועל
+      sortSpecs: [
+        { dimensionIndex: COL_DATE, sortOrder: 'ASCENDING' },
+        { dimensionIndex: COL_TIME, sortOrder: 'ASCENDING' },
+      ],
     },
   }]);
 
@@ -473,7 +480,7 @@ async function applyFormatting(token, gid) {
       },
     },
     // יישור לפי סוג התוכן
-    ...[[COL_DATE, 'CENTER'], [COL_VENDOR, 'RIGHT'], [COL_TOTAL, 'RIGHT'], [COL_DOC, 'CENTER'],
+    ...[[COL_DATE, 'CENTER'], [COL_TIME, 'CENTER'], [COL_VENDOR, 'RIGHT'], [COL_TOTAL, 'RIGHT'], [COL_DOC, 'CENTER'],
       [COL_CATEGORY, 'CENTER'], [COL_DONE, 'CENTER'], [COL_STAMP, 'CENTER'], [COL_FILE, 'CENTER'],
     ].map(([i, a]) => ({
       repeatCell: {
@@ -506,6 +513,14 @@ async function applyFormatting(token, gid) {
         fields: 'userEnteredFormat.numberFormat',
       },
     },
+    // שעת הקבלה
+    {
+      repeatCell: {
+        range: all(COL_TIME, COL_TIME + 1),
+        cell: { userEnteredFormat: { numberFormat: { type: 'DATE_TIME', pattern: 'HH:mm' } } },
+        fields: 'userEnteredFormat.numberFormat',
+      },
+    },
     // חותמת הסימון — תאריך ושעה
     {
       repeatCell: {
@@ -535,7 +550,7 @@ async function applyFormatting(token, gid) {
       },
     },
     // רוחב עמודות נוח
-    ...[[0, 100], [1, 170], [2, 120], [3, 130], [4, 130], [5, 120], [6, 150], [7, 90], [9, 150], [10, 120]].map(([i, px]) => ({
+    ...[[0, 100], [1, 70], [2, 180], [3, 120], [4, 130], [5, 120], [6, 110], [7, 145], [8, 80], [10, 150], [11, 125]].map(([i, px]) => ({
       updateDimensionProperties: {
         range: { sheetId: gid, dimension: 'COLUMNS', startIndex: i, endIndex: i + 1 },
         properties: { pixelSize: px },

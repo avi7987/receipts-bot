@@ -34,7 +34,8 @@ export function receiptMessage(r, meta = {}) {
   lines.push(`✅ *נקלט — ${r.vendor || 'ספק לא זוהה'}*`);
 
   const when = heDate(r.date);
-  lines.push(when ? `📅 ${when}` : '📅 _התאריך לא זוהה_');
+  const clock = r.time ? `   🕒 ${r.time}` : '';
+  lines.push(when ? `📅 ${when}${clock}` : '📅 _התאריך לא זוהה_');
 
   const total = money(r.total_with_tip, r.currency);
   if (total) {

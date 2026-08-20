@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { normalize, num, isoDate, dateLooksSane, extractJson } from '../src/vision.js';
+import { normalize, num, isoDate, dateLooksSane, extractJson, clockTime } from '../src/vision.js';
 import { rowFrom, HEADERS, colLetter, hebField, normDoc, numOf, sameDate } from '../src/sheets.js';
 import { money, heDate, receiptMessage, errorMessage } from '../src/format.js';
 
@@ -115,8 +115,8 @@ test('normalize מכריח קטגוריה מהרשימה הסגורה', () => {
 });
 
 // ── בניית השורה לגיליון ─────────────────────────────────────────────
-test('הטבלה היא שמונה עמודות בסדר הנכון', () => {
-  assert.deepEqual(HEADERS, ['תאריך', 'ספק', 'סכום כולל', 'מספר חשבונית', 'קטגוריה', 'הוזן במערכת', 'סומן בתאריך', 'קבלה']);
+test('הטבלה היא תשע עמודות בסדר הנכון', () => {
+  assert.deepEqual(HEADERS, ['תאריך', 'שעה', 'ספק', 'סכום כולל', 'מספר חשבונית', 'קטגוריה', 'הוזן במערכת', 'סומן בתאריך', 'קבלה']);
 });
 
 test('rowFrom מייצר שורה באורך הכותרות', () => {
@@ -231,4 +231,25 @@ test('rowFrom מייצר קישור להורדת הקבלה', () => {
 
 test('בלי קישור — התא נשאר ריק', () => {
   assert.equal(rowFrom(normalize(raw))[HEADERS.indexOf('קבלה')], '');
+});
+
+// ── שעת הקבלה ───────────────────────────────────────────────────────
+test('clockTime מנרמל לפורמט 24 שעות', () => {
+  assert.equal(clockTime('21:06'), '21:06');
+  assert.equal(clockTime('9:05'), '09:05');        // אפס מוביל מתווסף
+  assert.equal(clockTime('14:22:35'), '14:22');    // שניות נזרקות
+  assert.equal(clockTime('שעה: 16:48'), '16:48');  // טקסט מסביב
+  assert.equal(clockTime('25:00'), null);          // שעה שלא קיימת
+  assert.equal(clockTime('12:71'), null);          // דקה שלא קיימת
+  assert.equal(clockTime(''), null);
+  assert.equal(clockTime(null), null);
+});
+
+test('rowFrom כותב את שעת הקבלה', () => {
+  assert.equal(rowFrom(normalize({ ...raw, time: '21:06' }))[HEADERS.indexOf('שעה')], '21:06');
+  assert.equal(rowFrom(normalize(raw))[HEADERS.indexOf('שעה')], '');
+});
+
+test('receiptMessage מציג את השעה לצד התאריך', () => {
+  assert.match(receiptMessage(normalize({ ...raw, time: '21:06' }), {}), /🕒 21:06/);
 });

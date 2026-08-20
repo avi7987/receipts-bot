@@ -39,6 +39,7 @@ Extract the data exactly as printed. Return ONLY valid JSON, no markdown, in thi
   "is_receipt": true|false,
   "not_receipt_reason": "short Hebrew sentence, only when is_receipt is false, otherwise null",
   "date": "YYYY-MM-DD, or null",
+  "time": "HH:MM in 24h as printed on the receipt, or null",
   "total": number or null,
   "doc_number": "the document/invoice/receipt number as printed, or null",
   "tip_extra": number or null,
@@ -51,16 +52,17 @@ Extract the data exactly as printed. Return ONLY valid JSON, no markdown, in thi
 RULES — follow every one of them:
 1. NEVER invent a value. If something is not printed, or you cannot read it, set it to null AND add the field name to "uncertain". A missing value is fine; a wrong value is not.
 2. DATES ARE DAY-FIRST. Israeli receipts write 04/08/2026 meaning 4 August 2026 — never American month-first. A two-digit year like 26 means 2026. Output strictly YYYY-MM-DD.
-3. NUMBERS: plain decimals with a dot, no currency symbol, no thousands separator. "1,234.50 ₪" becomes 1234.5.
-4. "total" is the FINAL amount actually charged (סה"כ לתשלום / סך הכל), INCLUDING VAT and including any tip or service charge that is already printed on the document. If the receipt shows both a before-VAT and an after-VAT total, "total" is the after-VAT one. Never report a subtotal here.
-5. "tip_extra" is ONLY for a tip that the person states in their note and that is NOT already part of "total" — typically a cash tip left on the table. If no such note exists, set it to null. Never guess a tip, and never move a printed tip here.
-6. "doc_number" is the invoice/receipt number (חשבונית מס' / קבלה מס' / מספר מסמך). Keep leading zeros exactly as printed. It is NOT the credit-card approval number (מספר אישור), NOT the terminal number, and NOT the business's ח.פ.
-7. ₪ / ש"ח / שקל / NIS all mean currency "ILS". If no currency is shown anywhere and the text is Hebrew, assume "ILS" and do NOT mark it uncertain.
-8. "vendor" is the business that was PAID — usually the largest name at the top, near the ח.פ. It is not the customer, and not the credit card company. Keep it short: the business name only, without the legal suffix (בע"מ) and without branch details.
-9. "category": pick the single best fit from the closed list above, based on what was actually bought. A café or restaurant bill is "מסעדה"; a parking garage or Pango is "חניה"; a gas station is "דלק"; taxi, bus or train is "נסיעות ומוניות". If genuinely unclear, use "אחר" — do not invent a category outside the list.
-10. If the picture is not a receipt or invoice at all (a photo, a screenshot of a chat, a blurry unreadable page), set "is_receipt": false, explain shortly in Hebrew in "not_receipt_reason", and leave every other field null.
-11. If the picture IS a receipt but is too blurry/cropped to read a specific field, still return the fields you can read, and list the rest in "uncertain".
-12. Output nothing except the JSON object.`;
+3. "time" is the hour printed on the receipt (שעה / זמן), in 24-hour HH:MM. A receipt showing 21:06 stays 21:06; one showing 9:05 becomes 09:05. If two times appear (entry and exit on a parking receipt, for example), take the one next to the payment or next to the document date. If no time is printed, set null — do NOT list it in "uncertain", many receipts simply do not print one.
+4. NUMBERS: plain decimals with a dot, no currency symbol, no thousands separator. "1,234.50 ₪" becomes 1234.5.
+5. "total" is the FINAL amount actually charged (סה"כ לתשלום / סך הכל), INCLUDING VAT and including any tip or service charge that is already printed on the document. If the receipt shows both a before-VAT and an after-VAT total, "total" is the after-VAT one. Never report a subtotal here.
+6. "tip_extra" is ONLY for a tip that the person states in their note and that is NOT already part of "total" — typically a cash tip left on the table. If no such note exists, set it to null. Never guess a tip, and never move a printed tip here.
+7. "doc_number" is the invoice/receipt number (חשבונית מס' / קבלה מס' / מספר מסמך). Keep leading zeros exactly as printed. It is NOT the credit-card approval number (מספר אישור), NOT the terminal number, and NOT the business's ח.פ.
+8. ₪ / ש"ח / שקל / NIS all mean currency "ILS". If no currency is shown anywhere and the text is Hebrew, assume "ILS" and do NOT mark it uncertain.
+9. "vendor" is the business that was PAID — usually the largest name at the top, near the ח.פ. It is not the customer, and not the credit card company. Keep it short: the business name only, without the legal suffix (בע"מ) and without branch details.
+10. "category": pick the single best fit from the closed list above, based on what was actually bought. A café or restaurant bill is "מסעדה"; a parking garage or Pango is "חניה"; a gas station is "דלק"; taxi, bus or train is "נסיעות ומוניות". If genuinely unclear, use "אחר" — do not invent a category outside the list.
+11. If the picture is not a receipt or invoice at all (a photo, a screenshot of a chat, a blurry unreadable page), set "is_receipt": false, explain shortly in Hebrew in "not_receipt_reason", and leave every other field null.
+12. If the picture IS a receipt but is too blurry/cropped to read a specific field, still return the fields you can read, and list the rest in "uncertain".
+13. Output nothing except the JSON object.`;
 
 /**
  * קורא קבלה ומחזיר אובייקט מובנה, או זורק שגיאה.
@@ -162,6 +164,7 @@ export function normalize(j) {
     is_receipt: j.is_receipt !== false,
     not_receipt_reason: str(j.not_receipt_reason),
     date: isoDate(j.date),
+    time: clockTime(j.time),
     total: num(j.total),
     doc_number: str(j.doc_number),
     tip_extra: num(j.tip_extra),
@@ -223,6 +226,22 @@ export function isoDate(v) {
   // מוודאים שהתאריך באמת קיים (31.02 יתגלגל לחודש הבא)
   if (dt.getUTCMonth() + 1 !== Number(mo) || dt.getUTCDate() !== Number(d)) return null;
   return `${y}-${mo}-${d}`;
+}
+
+/**
+ * שעה מהקבלה → "HH:MM" בפורמט 24 שעות, או null.
+ * מקבל גם 9:05 וגם 21:06:32, ופוסל שעות שלא קיימות.
+ */
+export function clockTime(v) {
+  const s = str(v);
+  if (!s) return null;
+  const m = /(\d{1,2})[:.](\d{2})/.exec(s);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (!Number.isInteger(h) || !Number.isInteger(min)) return null;
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
 }
 
 export function dateLooksSane(iso) {
