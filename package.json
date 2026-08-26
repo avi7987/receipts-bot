@@ -15,7 +15,8 @@
     "migrate": "node src/migrate-sheet.js",
     "design": "node src/design-sheet.js",
     "add-guests": "node src/add-guest-columns.js",
-    "repair": "node src/repair-sheet.js"
+    "repair": "node src/repair-sheet.js",
+    "bookmarklet": "node tools/build-bookmarklet.js"
   },
   "engines": {
     "node": ">=22"

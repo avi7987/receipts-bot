@@ -251,7 +251,7 @@
 
   const bar = document.createElement('div');
   bar.setAttribute('style', 'background:#263238;color:#fff;padding:10px 14px;display:flex;gap:8px;align-items:center;border-radius:7px 7px 0 0');
-  bar.innerHTML = '<b style="flex:1">מילוי טופס הוצאות <span style="opacity:.6;font-weight:400">v9</span></b>';
+  bar.innerHTML = '<b style="flex:1">מילוי טופס הוצאות <span style="opacity:.6;font-weight:400">v11</span></b>';
 
   const stopBtn = document.createElement('button');
   stopBtn.textContent = 'עצור';
@@ -307,6 +307,11 @@
   // ── הלולאה ────────────────────────────────────────────────────────
   let done = 0;
   const problems = [];
+  // שורות שבהן "רכב חלופי" נכפה עלינו כשדה חובה ומולא ברכב הרגיל —
+  // רק עליהן צריך להתריע בסיכום, לא על כל הרצה.
+  const carFallbacks = [];
+  // מה שנוסף בפועל לטופס — הרשימה שתסומן ✓ בגיליון בסוף
+  const added = [];
 
   for (const item of ready) {
     if (stopped) break;
@@ -357,8 +362,10 @@
     // רכב חלופי: אם ענית "לא" בוואטסאפ, העמודה ריקה ולא ממלאים כלום.
     // השדה מסומן כחובה, אז אם החלון יסרב להיסגר ננסה שוב עם מספר
     // הרכב הרגיל שכבר מופיע בטופס — ראה למטה.
-    if (item.category === 'דלק' && item.altCar) {
-      fill.push(['Alternative Car Number', item.altCar]);
+    if (item.altCar && (item.category === 'דלק' || item.category === 'חניה')) {
+      // בחניה לא ראינו את השדה הזה בטופס, אז הוא מסומן כרשות (הדגל
+      // השלישי): אם הוא לא קיים מדלגים, במקום להפיל את כל ההרצה.
+      fill.push(['Alternative Car Number', item.altCar, item.category === 'חניה']);
     }
     if (item.category === 'חניה') fill.push(['Customer Name', item.customer || TBD]);
     if (item.category === 'מסעדה') {
@@ -373,8 +380,9 @@
     }
 
     let failedField = null;
-    for (const [label, value] of fill) {
+    for (const [label, value, optional] of fill) {
       const el = fieldByLabel(label, modal);
+      if (!el && optional) { log(`   ${label} — אין שדה כזה, מדלג`, '#78909c'); continue; }
       if (!el) { failedField = `${label} — השדה לא נמצא`; break; }
 
       setValue(el, value);
@@ -426,6 +434,7 @@
         await sleep(400);
         buttonByText('Add', modal)?.click();
         closed = await waitFor(() => ![...document.querySelectorAll(modalSel)].some(visible), { timeout: 8000 });
+        if (closed) carFallbacks.push(`${title} → ${regular}`);
       }
     }
 
@@ -437,7 +446,30 @@
 
     done++;
     log(`✅ נוסף (${done}/${ready.length})`, '#2e7d32');
+    added.push({ row: item.row, invoice: item.invoice, amount: item.amount });
     await sleep(600);
+  }
+
+  // ── סימון ✓ בגיליון ───────────────────────────────────────────────
+  //
+  //  מסמנים רק את מה שבאמת נוסף, ורק אחרי שהוא נוסף. אם הסימון
+  //  ייכשל — הקבלה תופיע שוב בהרצה הבאה, וזה עדיף על קבלה שסומנה
+  //  אבל לא הוזנה ולכן לא תשולם לעולם.
+  if (added.length) {
+    try {
+      const r = await fetch(`${API}/done?k=${KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows: added }),
+      });
+      const out = await r.json();
+      if (!r.ok || !out.ok) throw new Error(out.error || `HTTP ${r.status}`);
+      log(`✓ סומנו בגיליון: ${out.marked.length} שורות`, '#2e7d32');
+      (out.skipped || []).forEach((s) => log(`⤫ שורה ${s.row}: ${s.why}`, '#ef6c00'));
+    } catch (e) {
+      log(`⚠️ הזנה הצליחה אבל הסימון בגיליון נכשל: ${e.message}`, '#ef6c00');
+      log('סמן את השורות ידנית, אחרת הן יוזנו שוב בפעם הבאה.', '#ef6c00');
+    }
   }
 
   // ── סיכום ─────────────────────────────────────────────────────────
@@ -449,6 +481,10 @@
   }
   if (done) {
     log('<br>עכשיו עבור על השורות, השלם מה שחסר, ולחץ <b>Save as Draft</b>.', '#263238');
-    log('שים לב: "מספר רכב חלופי" מולא ב-11111111 — עדכן אותו.', '#ef6c00');
+    log('השורות כבר מסומנות ✓ בגיליון — אל תסגור את הטופס בלי לשמור.', '#ef6c00');
+    if (carFallbacks.length) {
+      log('<b>"רכב חלופי" הוא שדה חובה, ומולא ברכב הרגיל:</b>', '#ef6c00');
+      carFallbacks.forEach((c) => log(`• ${c}`, '#ef6c00'));
+    }
   }
 })();

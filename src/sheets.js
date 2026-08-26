@@ -573,6 +573,96 @@ export function sameDate(cell, iso) {
   return asIso === iso;
 }
 
+// ── סימון "הוזן במערכת" מתוך הכלי שממלא את הטופס ────────────────────
+//
+//  אחרי שהכלי הוסיף שורה בטופס, הוא מדווח לכאן והתא מסומן ✓. בלי
+//  זה הסימון נשאר ידני — ואם שכחת, ההרצה הבאה תמלא את אותה קבלה
+//  פעם שנייה.
+//
+//  למה לא סומכים על מספר השורה שהכלי שלח: הכלי מושך את הרשימה
+//  פעם אחת ואז עובד כמה דקות. אם בינתיים נכנסה קבלה חדשה, הגיליון
+//  ממוין מחדש והשורות זזות. לכן מאמתים מול החשבונית והסכום, ואם
+//  השורה זזה — מחפשים אותה במקום החדש שלה.
+//
+//  חשבונית לבדה לא מספיקה: בנתונים יש כבר שתי קבלות שונות עם אותו
+//  מספר (תחנת דלק וקפה). הסכום הוא מה שמפריד ביניהן.
+/**
+ * האם שורת הגיליון היא הקבלה שהכלי מדווח עליה.
+ * דורש לפחות סימן מזהה אחד שקיים בשני הצדדים — בלי זה זו לא
+ * התאמה אלא ניחוש, ומסמנים ✓ על קבלה שלא הוזנה.
+ * @param {Array<any>} r שורת הגיליון הגולמית
+ */
+export function rowMatches(r, invoice, amount) {
+  if (!r) return false;
+  const doc = normDoc(r[COL_DOC]);
+  const total = numOf(r[COL_TOTAL]);
+  if (invoice && doc && doc !== invoice) return false;
+  if (amount !== null && amount !== undefined && total !== null
+      && Math.abs(total - amount) >= 0.005) return false;
+  return Boolean((invoice && doc) || (amount !== null && amount !== undefined && total !== null));
+}
+
+/**
+ * @param {Array<{row?:number, invoice?:string, amount?:number}>} items
+ * @returns {Promise<{marked:Array<{row:number,invoice:string}>, skipped:Array<object>}>}
+ */
+export async function markDone(items) {
+  const marked = [];
+  const skipped = [];
+  if (!sheetsConfigured() || !Array.isArray(items) || !items.length) return { marked, skipped };
+
+  const token = await accessToken();
+  await ensureSetup(token);
+
+  const last = colLetter(HEADERS.length);
+  const res = await fetch(
+    `${API}/${SHEET_ID}/values/${encodeURIComponent(`${TAB}!A2:${last}`)}?valueRenderOption=UNFORMATTED_VALUE`,
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20000) },
+  );
+  if (!res.ok) throw new Error(`Sheets read ${res.status}`);
+  const rows = (await res.json()).values || [];
+
+  const doneCol = colLetter(COL_DONE + 1);
+  const stampCol = colLetter(COL_STAMP + 1);
+  const updates = [];
+  const taken = new Set();
+
+  for (const it of items) {
+    const invoice = normDoc(it?.invoice);
+    const amount = it?.amount === null || it?.amount === undefined ? null : numOf(it.amount);
+
+    let idx = Number(it?.row) - 2;
+    if (!(idx >= 0 && idx < rows.length && !taken.has(idx) && rowMatches(rows[idx], invoice, amount))) {
+      idx = rows.findIndex((r, i) => !taken.has(i) && rowMatches(r, invoice, amount));
+    }
+    if (idx < 0) {
+      skipped.push({ row: it?.row ?? null, invoice, why: 'לא נמצאה שורה מתאימה' });
+      continue;
+    }
+    taken.add(idx);
+
+    if (rows[idx][COL_DONE] === true) {
+      skipped.push({ row: idx + 2, invoice, why: 'כבר מסומנת' });
+      continue;
+    }
+
+    updates.push({ range: `${TAB}!${doneCol}${idx + 2}`, values: [[true]] });
+    updates.push({ range: `${TAB}!${stampCol}${idx + 2}`, values: [[nowInIsrael()]] });
+    marked.push({ row: idx + 2, invoice });
+  }
+
+  if (updates.length) {
+    const put = await fetch(`${API}/${SHEET_ID}/values:batchUpdate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(30000),
+      body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data: updates }),
+    });
+    if (!put.ok) throw new Error(`Sheets mark ${put.status}: ${(await put.text()).slice(0, 200)}`);
+  }
+  return { marked, skipped };
+}
+
 // ── חותמת זמן על שורות שסומנו ───────────────────────────────────────
 //
 //  Google Sheets לא יודעת לרשום לבד מתי תא שונה. במקום להכריח אותך

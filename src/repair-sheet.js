@@ -19,8 +19,10 @@ const SHEET_ID = process.env.GOOGLE_SHEET_ID;
 const TAB = process.env.GOOGLE_SHEET_TAB || 'הוצאות';
 const API = 'https://sheets.googleapis.com/v4/spreadsheets';
 
-const COL_GUESTS = 6;   // G
-const COL_DONE = 9;     // J — היחידה שאמורה להיות תיבת סימון
+// נגזר מהכותרות ולא מקובע — אחרת כל הוספת עמודה מזיזה את הסימון
+// והתיקון עצמו הופך למקלקל. זה בדיוק מה שקרה כשנוספה "רכב חלופי".
+const COL_DONE = HEADERS.indexOf('הוזן במערכת');
+if (COL_DONE < 0) { console.error('❌ אין עמודת "הוזן במערכת"'); process.exit(1); }
 
 const b64 = (s) => Buffer.from(s).toString('base64url');
 const now = Math.floor(Date.now() / 1000);
@@ -59,7 +61,7 @@ console.log(`✅ כותרות: ${HEADERS.join(' · ')}\n`);
 
 // ── 2. הסרת אימות נתונים מכל העמודות חוץ מעמודת הסימון ──────────────
 const clearValidation = [];
-for (let i = 0; i < HEADERS.length; i++) {
+for (let i = 0; i < HEADERS.length + 3; i++) {
   if (i === COL_DONE) continue;
   clearValidation.push({
     setDataValidation: {

@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { normalize, num, isoDate, dateLooksSane, extractJson, clockTime, guestCount } from '../src/vision.js';
-import { rowFrom, HEADERS, colLetter, hebField, normDoc, numOf, sameDate } from '../src/sheets.js';
+import { rowFrom, HEADERS, colLetter, hebField, normDoc, numOf, sameDate, rowMatches } from '../src/sheets.js';
 import {
   money, heDate, receiptMessage, errorMessage, followUpSteps, stepQuestion,
   parseYesNo, carNumber,
@@ -359,4 +359,38 @@ test('שאלת הרכב החלופי מציעה גם תשובה מקוצרת', (
   const q = stepQuestion('isAltCar', 'דלק', null);
   assert.match(q, /רכב חלופי/);
   assert.match(q, /33140703/);
+});
+
+// ── זיהוי השורה לסימון ✓ ────────────────────────────────────────────
+//
+//  הכלי מדווח "הזנתי את שורה 11", אבל בין המשיכה להזנה יכולה
+//  להיכנס קבלה חדשה והגיליון ימוין מחדש. לכן מאמתים תוכן.
+const sheetRow = (invoice, total) => {
+  const r = [];
+  r[HEADERS.indexOf('סכום כולל')] = total;
+  r[HEADERS.indexOf('מספר חשבונית')] = invoice;
+  return r;
+};
+
+test('rowMatches מאמת חשבונית וסכום', () => {
+  assert.equal(rowMatches(sheetRow('57982', 219), '57982', 219), true);
+  assert.equal(rowMatches(sheetRow('57982', 219), '57982', 220), false);   // סכום אחר
+  assert.equal(rowMatches(sheetRow('57982', 219), '99999', 219), false);   // חשבונית אחרת
+  assert.equal(rowMatches(sheetRow("'57982", '219.00 ₪'), '57982', 219), true); // גרש ומטבע
+  assert.equal(rowMatches(undefined, '57982', 219), false);
+});
+
+test('rowMatches מפריד בין שתי קבלות עם אותו מספר חשבונית', () => {
+  // קיים בנתונים אמיתיים: תחנת דלק וקפה קיבלו את אותו מספר
+  const dup = '063309901885125';
+  assert.equal(rowMatches(sheetRow(dup, 60), dup, 60), true);
+  assert.equal(rowMatches(sheetRow(dup, 60), dup, 276.11), false);
+  assert.equal(rowMatches(sheetRow(dup, 276.11), dup, 276.11), true);
+});
+
+test('rowMatches לא מסמן בלי שום סימן מזהה', () => {
+  assert.equal(rowMatches(sheetRow('', ''), null, null), false);
+  assert.equal(rowMatches(sheetRow('', 219), null, null), false);
+  // סכום בלבד מספיק כשאין מספר חשבונית בקבלה
+  assert.equal(rowMatches(sheetRow('', 219), null, 219), true);
 });

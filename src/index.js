@@ -17,7 +17,7 @@ import {
   msgIdOf, updateOrReply, scanGroupMedia, sendToGroup,
 } from './wa.js';
 import { readReceipt, visionAvailable } from './vision.js';
-import { appendRow, rowFrom, sheetUrl, sheetsConfigured, stampChecked, findRow, pendingSummary, updateRowFields, pendingRows } from './sheets.js';
+import { appendRow, rowFrom, sheetUrl, sheetsConfigured, stampChecked, findRow, pendingSummary, updateRowFields, pendingRows, markDone } from './sheets.js';
 import { saveReceipt, storageMode, saveForServing, resolveServed, servingConfigured } from './storage.js';
 
 import * as state from './state.js';
@@ -426,6 +426,25 @@ function cors(req, headers = {}) {
   };
 }
 
+// גוף בקשה כ-JSON, עם תקרה. בלי התקרה שליחה אחת גדולה מספיקה
+// כדי למלא את הזיכרון של המכונה הקטנה שעליה זה רץ.
+function readJson(req, limit = 64 * 1024) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > limit) { reject(new Error('הגוף גדול מדי')); req.destroy(); return; }
+      chunks.push(c);
+    });
+    req.on('end', () => {
+      try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')); }
+      catch { reject(new Error('JSON לא תקין')); }
+    });
+    req.on('error', reject);
+  });
+}
+
 // מפתח לנקודת הקבלות הממתינות — נגזר מאותו סוד של הקישורים
 const PENDING_KEY = process.env.LINK_SECRET
   ? crypto.createHash('sha256').update(`${process.env.LINK_SECRET}:pending`).digest('hex').slice(0, 32)
@@ -435,7 +454,13 @@ http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
 
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, cors(req, { 'Access-Control-Max-Age': '86400' }));
+    // בלי Allow-Methods/Headers הדפדפן יחסום את ה-POST של /done עוד
+    // לפני שהוא נשלח — הבקשה המקדימה תיכשל בשקט
+    res.writeHead(204, cors(req, {
+      'Access-Control-Max-Age': '86400',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    }));
     res.end();
     return;
   }
@@ -453,6 +478,36 @@ http.createServer(async (req, res) => {
       res.end(JSON.stringify({ ok: true, count: rows.length, rows }));
     } catch (e) {
       console.error('/pending נכשל:', e.message || e);
+      res.writeHead(500, cors(req, { 'Content-Type': 'application/json; charset=utf-8' }));
+      res.end(JSON.stringify({ error: short(e.message) }));
+    }
+    return;
+  }
+
+  // סימון ✓ אחרי שהכלי הזין את הקבלה בטופס
+  if (url.pathname === '/done') {
+    if (!PENDING_KEY || url.searchParams.get('k') !== PENDING_KEY) {
+      res.writeHead(403, cors(req, { 'Content-Type': 'application/json; charset=utf-8' }));
+      res.end(JSON.stringify({ error: 'forbidden' }));
+      return;
+    }
+    if (req.method !== 'POST') {
+      res.writeHead(405, cors(req, { 'Content-Type': 'application/json; charset=utf-8' }));
+      res.end(JSON.stringify({ error: 'method' }));
+      return;
+    }
+    try {
+      const body = await readJson(req);
+      const items = Array.isArray(body?.rows) ? body.rows.slice(0, 100) : [];
+      const { marked, skipped } = await markDone(items);
+      if (marked.length) {
+        console.log(`✓ סומנו כהוזנו: ${marked.map((m) => m.row).join(', ')}`);
+      }
+      for (const s of skipped) console.log(`⤫ לא סומנה (שורה ${s.row}): ${s.why}`);
+      res.writeHead(200, cors(req, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }));
+      res.end(JSON.stringify({ ok: true, marked, skipped }));
+    } catch (e) {
+      console.error('/done נכשל:', e.message || e);
       res.writeHead(500, cors(req, { 'Content-Type': 'application/json; charset=utf-8' }));
       res.end(JSON.stringify({ error: short(e.message) }));
     }
