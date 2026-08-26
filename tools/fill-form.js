@@ -13,7 +13,7 @@
 (async function () {
   const API = '__API__';          // מוחלף בבנייה
   const KEY = '__KEY__';
-  const ALT_CAR = '11111111';     // מספר רכב חלופי — זמני, לעדכון בטיוטה
+
   const TBD = 'TBD';
 
   // ── עזרי המתנה ────────────────────────────────────────────────────
@@ -251,7 +251,7 @@
 
   const bar = document.createElement('div');
   bar.setAttribute('style', 'background:#263238;color:#fff;padding:10px 14px;display:flex;gap:8px;align-items:center;border-radius:7px 7px 0 0');
-  bar.innerHTML = '<b style="flex:1">מילוי טופס הוצאות <span style="opacity:.6;font-weight:400">v8</span></b>';
+  bar.innerHTML = '<b style="flex:1">מילוי טופס הוצאות <span style="opacity:.6;font-weight:400">v9</span></b>';
 
   const stopBtn = document.createElement('button');
   stopBtn.textContent = 'עצור';
@@ -353,8 +353,13 @@
       ['Invoice Number', item.invoice],
       ['Amount', amount],
     ];
-    // לפי סוג ההוצאה
-    if (item.category === 'דלק') fill.push(['Alternative Car Number', ALT_CAR]);
+    // לפי סוג ההוצאה.
+    // רכב חלופי: אם ענית "לא" בוואטסאפ, העמודה ריקה ולא ממלאים כלום.
+    // השדה מסומן כחובה, אז אם החלון יסרב להיסגר ננסה שוב עם מספר
+    // הרכב הרגיל שכבר מופיע בטופס — ראה למטה.
+    if (item.category === 'דלק' && item.altCar) {
+      fill.push(['Alternative Car Number', item.altCar]);
+    }
     if (item.category === 'חניה') fill.push(['Customer Name', item.customer || TBD]);
     if (item.category === 'מסעדה') {
       // אירוח של סועד אחד לא קיים — אם לא ידוע או 1, מדווחים 2
@@ -408,7 +413,22 @@
     if (!confirm) { problems.push(`${title}: אין כפתור Add בחלון`); log('❌ אין Add בחלון', '#c62828'); break; }
     confirm.click();
 
-    const closed = await waitFor(() => ![...document.querySelectorAll(modalSel)].some(visible), { timeout: 8000 });
+    let closed = await waitFor(() => ![...document.querySelectorAll(modalSel)].some(visible), { timeout: 8000 });
+
+    // "רכב חלופי" מסומן כחובה. אם ענית "לא" והשארנו אותו ריק והטופס
+    // סירב — ממלאים אותו במספר הרכב הרגיל שכבר מופיע בחלון, ומנסים שוב.
+    if (!closed && item.category === 'דלק' && !item.altCar) {
+      const regular = fieldByLabel('Car Number', modal)?.value?.trim();
+      const altField = fieldByLabel('Alternative Car Number', modal);
+      if (regular && altField && !altField.value.trim()) {
+        log(`   השדה חובה — ממלא במספר הרכב הרגיל (${regular})`, '#ef6c00');
+        setValue(altField, regular);
+        await sleep(400);
+        buttonByText('Add', modal)?.click();
+        closed = await waitFor(() => ![...document.querySelectorAll(modalSel)].some(visible), { timeout: 8000 });
+      }
+    }
+
     if (!closed) {
       problems.push(`${title}: החלון לא נסגר — כנראה שדה חובה חסר`);
       log('❌ החלון לא נסגר. בדוק מה חסר.', '#c62828');

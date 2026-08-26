@@ -4,7 +4,10 @@ import assert from 'node:assert/strict';
 
 import { normalize, num, isoDate, dateLooksSane, extractJson, clockTime, guestCount } from '../src/vision.js';
 import { rowFrom, HEADERS, colLetter, hebField, normDoc, numOf, sameDate } from '../src/sheets.js';
-import { money, heDate, receiptMessage, errorMessage, followUpSteps, stepQuestion } from '../src/format.js';
+import {
+  money, heDate, receiptMessage, errorMessage, followUpSteps, stepQuestion,
+  parseYesNo, carNumber,
+} from '../src/format.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -115,8 +118,8 @@ test('normalize מכריח קטגוריה מהרשימה הסגורה', () => {
 });
 
 // ── בניית השורה לגיליון ─────────────────────────────────────────────
-test('הטבלה היא 12 עמודות בסדר הנכון', () => {
-  assert.deepEqual(HEADERS, ['תאריך', 'שעה', 'ספק', 'סכום כולל', 'מספר חשבונית', 'קטגוריה', 'סועדים', 'לקוח', 'אורחים', 'הוזן במערכת', 'סומן בתאריך', 'קבלה']);
+test('הטבלה היא 13 עמודות בסדר הנכון', () => {
+  assert.deepEqual(HEADERS, ['תאריך', 'שעה', 'ספק', 'סכום כולל', 'מספר חשבונית', 'קטגוריה', 'סועדים', 'לקוח', 'אורחים', 'רכב חלופי', 'הוזן במערכת', 'סומן בתאריך', 'קבלה']);
 });
 
 test('rowFrom מייצר שורה באורך הכותרות', () => {
@@ -300,10 +303,10 @@ test('normalize מעביר את מספר הסועדים', () => {
 });
 
 // ── שאלת המשך ───────────────────────────────────────────────────────
-test('שאלות המשך רק לאוכל ולחניה', () => {
+test('שאלות המשך לפי קטגוריה', () => {
   assert.deepEqual(followUpSteps('מסעדה'), ['customer', 'guestNames']);
-  assert.deepEqual(followUpSteps('חניה'), ['customer']);
-  assert.deepEqual(followUpSteps('דלק'), []);
+  assert.deepEqual(followUpSteps('חניה'), ['customer', 'isAltCar']);
+  assert.deepEqual(followUpSteps('דלק'), ['isAltCar']);
   assert.deepEqual(followUpSteps('אחר'), []);
 });
 
@@ -324,4 +327,36 @@ test('לקוח ואורחים נכתבים כשהם מגיעים מהתשובו�
   const row = rowFrom({ ...normalize(raw), customer: 'בינת', guestNames: 'אני, רמי' });
   assert.equal(row[HEADERS.indexOf('לקוח')], 'בינת');
   assert.equal(row[HEADERS.indexOf('אורחים')], 'אני, רמי');
+});
+
+// ── רכב חלופי ───────────────────────────────────────────────────────
+test('parseYesNo מבין כן ולא', () => {
+  assert.equal(parseYesNo('לא'), false);
+  assert.equal(parseYesNo('no'), false);
+  assert.equal(parseYesNo('כן'), true);
+  assert.equal(parseYesNo('yes'), true);
+  assert.equal(parseYesNo('כן 33140703'), true);
+  assert.equal(parseYesNo('33140703'), true);      // מספר לבדו = כן
+  assert.equal(parseYesNo('אולי'), null);          // לא ברור — נשאל שוב
+  assert.equal(parseYesNo(''), null);
+});
+
+test('carNumber מחלץ 7 או 8 ספרות', () => {
+  assert.equal(carNumber('כן 33140703'), '33140703');
+  assert.equal(carNumber('המספר הוא 1234567'), '1234567');
+  assert.equal(carNumber('33-140-703'), null);     // אין רצף של 7+
+  assert.equal(carNumber('123'), null);            // קצר מדי
+  assert.equal(carNumber('בלי מספר'), null);
+});
+
+test('rowFrom כותב מספר רכב חלופי', () => {
+  const row = rowFrom({ ...normalize(raw), altCar: '33140703' });
+  assert.equal(row[HEADERS.indexOf('רכב חלופי')], '33140703');
+  assert.equal(rowFrom(normalize(raw))[HEADERS.indexOf('רכב חלופי')], '');
+});
+
+test('שאלת הרכב החלופי מציעה גם תשובה מקוצרת', () => {
+  const q = stepQuestion('isAltCar', 'דלק', null);
+  assert.match(q, /רכב חלופי/);
+  assert.match(q, /33140703/);
 });

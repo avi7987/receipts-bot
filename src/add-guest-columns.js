@@ -45,29 +45,20 @@ if (gid === undefined) { console.error(`❌ אין לשונית "${TAB}"`); proc
 const headRow = ((await (await fetch(`${API}/${SHEET_ID}/values/${R('A1:N1')}`, { headers: auth })).json()).values || [[]])[0];
 console.log('כותרות כרגע:', headRow.filter(Boolean).join(' · '), '\n');
 
-if (headRow[7] === 'לקוח' && headRow[8] === 'אורחים') {
+if (headRow[9] === 'רכב חלופי') {
   console.log('✅ העמודות כבר קיימות — אין מה לעשות.');
   process.exit(0);
 }
 
-// טופס ההוצאות דורש באוכל גם "לקוח" וגם "שמות סועדים" — שני שדות
-// נפרדים. לכן העמודה שאיחדה אותם מתפצלת לשתיים.
+// "רכב חלופי" — ריק מציין את הרכב הרגיל. הבוט שואל על זה בוואטסאפ
+// אחרי כל קבלת תדלוק או חניה.
 
-// שלב 1: הכותרת הישנה "אורחים / לקוח" הופכת ל"לקוח"
-if (headRow[7] === 'אורחים / לקוח') {
-  await fetch(`${API}/${SHEET_ID}/values/${R('H1')}?valueInputOption=RAW`, {
-    method: 'PUT', headers: jauth, body: JSON.stringify({ values: [['לקוח']] }),
-  });
-  console.log('שונה שם העמודה H ל-"לקוח".');
-}
-
-// שלב 2: עמודה חדשה "אורחים" אחרי "לקוח"
 const ins = await fetch(`${API}/${SHEET_ID}:batchUpdate`, {
   method: 'POST', headers: jauth,
   body: JSON.stringify({
     requests: [{
       insertDimension: {
-        range: { sheetId: gid, dimension: 'COLUMNS', startIndex: 8, endIndex: 9 },
+        range: { sheetId: gid, dimension: 'COLUMNS', startIndex: 9, endIndex: 10 },
         inheritFromBefore: false,
       },
     }],
@@ -75,9 +66,8 @@ const ins = await fetch(`${API}/${SHEET_ID}:batchUpdate`, {
 });
 if (!ins.ok) { console.error('❌ ההוספה נכשלה:', (await ins.text()).slice(0, 250)); process.exit(1); }
 
-await fetch(`${API}/${SHEET_ID}/values/${R('I1')}?valueInputOption=RAW`, {
-  method: 'PUT', headers: jauth, body: JSON.stringify({ values: [['אורחים']] }),
+await fetch(`${API}/${SHEET_ID}/values/${R('J1')}?valueInputOption=RAW`, {
+  method: 'PUT', headers: jauth, body: JSON.stringify({ values: [['רכב חלופי']] }),
 });
 
-console.log('✅ נוספה עמודת "אורחים" אחרי "לקוח".');
-console.log('   הרץ עכשיו  npm run design  כדי ליישר את העיצוב.');
+console.log('✅ נוספה עמודת "רכב חלופי" אחרי "אורחים".');

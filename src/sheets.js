@@ -33,9 +33,10 @@ export const HEADERS = [
   'סועדים',           // G — כמה אנשים כיסתה החשבונית (אוכל)
   'לקוח',             // H — מי הלקוח (אוכל וחניה)
   'אורחים',           // I — שמות הסועדים (אוכל)
-  'הוזן במערכת',      // J — תיבת סימון. ✓ צובע את השורה
-  'סומן בתאריך',      // K — נחתם אוטומטית כשמסמנים
-  'קבלה',             // L — קישור להורדת התמונה
+  'רכב חלופי',        // J — ריק = הרכב הרגיל
+  'הוזן במערכת',      // K — תיבת סימון. ✓ צובע את השורה
+  'סומן בתאריך',      // L — נחתם אוטומטית כשמסמנים
+  'קבלה',             // M — קישור להורדת התמונה
 ];
 
 const COL_DATE = 0;
@@ -47,12 +48,13 @@ const COL_CATEGORY = 5;
 const COL_GUESTS = 6;
 const COL_CUSTOMER = 7;
 const COL_GUEST_NAMES = 8;
-const COL_DONE = 9;
-const COL_STAMP = 10;
-const COL_FILE = 11;
+const COL_ALT_CAR = 9;
+const COL_DONE = 10;
+const COL_STAMP = 11;
+const COL_FILE = 12;
 
-// עמודות הסיכום, מימין לטבלה עם עמודה ריקה מפרידה (K ו-L)
-const SUMMARY_COL = 13;   // N
+// עמודות הסיכום, מימין לטבלה עם עמודה ריקה מפרידה (O ו-P)
+const SUMMARY_COL = 14;   // O
 
 export function sheetsConfigured() {
   return !!(SHEET_ID && SA_EMAIL && SA_KEY);
@@ -84,6 +86,7 @@ export function rowFrom(r, fileUrl = null) {
   row[COL_GUESTS] = r.guests ?? '';
   row[COL_CUSTOMER] = r.customer || '';
   row[COL_GUEST_NAMES] = r.guestNames || '';
+  row[COL_ALT_CAR] = r.altCar || '';
   row[COL_DONE] = false;   // תיבת סימון ריקה
   row[COL_STAMP] = '';     // מתמלא אוטומטית כשמסמנים
   // לחיצה על הקישור מורידה את הקובץ ישירות, בלי מסך תצוגה של Drive
@@ -349,6 +352,10 @@ export async function updateRowFields(row, fields) {
   if (fields.guestNames !== undefined && fields.guestNames !== null) {
     data.push({ range: cell(COL_GUEST_NAMES), values: [[fields.guestNames]] });
   }
+  if (fields.altCar !== undefined && fields.altCar !== null) {
+    // גרשה מובילה — כדי שגוגל לא תהפוך מספר רכב למספר ותאבד אפסים
+    data.push({ range: cell(COL_ALT_CAR), values: [[fields.altCar ? `'${fields.altCar}` : '']] });
+  }
   if (fields.guests !== undefined && fields.guests !== null) {
     data.push({ range: cell(COL_GUESTS), values: [[fields.guests]] });
   }
@@ -489,6 +496,7 @@ export async function pendingRows() {
       guests: typeof r[COL_GUESTS] === 'number' ? r[COL_GUESTS] : null,
       customer: String(r[COL_CUSTOMER] || '').trim() || null,
       guestNames: String(r[COL_GUEST_NAMES] || '').trim() || null,
+      altCar: String(r[COL_ALT_CAR] ?? '').replace(/^'/, '').trim() || null,
       file: url,
     });
   });

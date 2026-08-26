@@ -87,7 +87,8 @@ export function receiptMessage(r, meta = {}) {
  */
 export function followUpSteps(category) {
   if (category === 'מסעדה') return ['customer', 'guestNames'];
-  if (category === 'חניה') return ['customer'];
+  if (category === 'חניה') return ['customer', 'isAltCar'];
+  if (category === 'דלק') return ['isAltCar'];
   return [];
 }
 
@@ -102,7 +103,39 @@ export function stepQuestion(step, category, guests) {
       ? `👥 *מי היו הסועדים?*\n_זיהיתי ${guests} סועדים בקבלה. כתוב את השמות._`
       : '👥 *מי היו הסועדים?*\n_כתוב את השמות, למשל: אני, רמי לוי, דנה כהן_';
   }
+  if (step === 'isAltCar') {
+    return '🚗 *רכב חלופי?*\n_ענה *לא* אם זה הרכב הרגיל שלך._\n_אפשר גם לענות ישר עם המספר, למשל: כן 33140703_';
+  }
+  if (step === 'altCarNumber') {
+    return '🔢 *מה מספר הרכב החלופי?*\n_7 או 8 ספרות._';
+  }
   return null;
+}
+
+/**
+ * "כן" / "לא" בעברית ובאנגלית. מחזיר true, false, או null אם לא ברור.
+ * תופס גם "כן 33140703" — התשובה והמספר בהודעה אחת.
+ */
+export function parseYesNo(text) {
+  //  שים לב: \b בביטוי רגולרי מוגדר לפי אותיות לטיניות, ולכן "כן"
+  //  ו"לא" לבדם לא נתפסים איתו. לעברית משתמשים ברווח-או-סוף-מחרוזת.
+  const t = String(text || '').trim().toLowerCase().replace(/[.!?,־-]+$/, '');
+  if (!t) return null;
+
+  if (/^(לא|לאו|שלילי|רגיל)(\s|$)/.test(t) || /^(no|n)\b/.test(t)) return false;
+  if (/^(כן|חיובי|נכון|כמובן)(\s|$)/.test(t) || /^(yes|y)\b/.test(t)) return true;
+
+  // מספר רכב לבדו נחשב "כן"
+  const digits = t.replace(/\D/g, '');
+  if (digits.length >= 7 && digits.length <= 8 && /^[\d\s-]+$/.test(t)) return true;
+
+  return null;
+}
+
+/** מחלץ מספר רכב תקין (7–8 ספרות) מטקסט חופשי, או null */
+export function carNumber(text) {
+  const m = String(text || '').match(/\d{7,8}/);
+  return m ? m[0] : null;
 }
 
 /** אישור אחרי שהתשובה האחרונה נקלטה */
@@ -111,6 +144,8 @@ export function answerSavedMessage(answers, guests, row) {
   if (answers.customer) lines.push(`🤝 לקוח: ${answers.customer}`);
   if (answers.guestNames) lines.push(`📝 סועדים: ${answers.guestNames}`);
   if (guests) lines.push(`👥 ${guests} סועדים`);
+  if (answers.altCar) lines.push(`🚗 רכב חלופי: ${answers.altCar}`);
+  else if (answers.isAltCar === false) lines.push('🚗 הרכב הרגיל');
   lines.push(`📊 עודכן בשורה ${row}`);
   return lines.join('\n');
 }

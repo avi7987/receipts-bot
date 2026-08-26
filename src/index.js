@@ -23,7 +23,7 @@ import { saveReceipt, storageMode, saveForServing, resolveServed, servingConfigu
 import * as state from './state.js';
 import {
   receiptMessage, notReceiptMessage, errorMessage, heDate, money,
-  followUpSteps, stepQuestion, answerSavedMessage,
+  followUpSteps, stepQuestion, answerSavedMessage, parseYesNo, carNumber,
 } from './format.js';
 
 const STARTED_AT = Date.now();
@@ -215,10 +215,42 @@ async function onText(session, msg, text) {
 
   const ctx = awaiting;
   const step = ctx.steps.shift();          // צורכים את השאלה מיד
-  ctx.answers[step] = answer;
+
+  // "רכב חלופי?" מסתעף: כן → שואלים מספר. לא → מסיימים.
+  if (step === 'isAltCar') {
+    const yes = parseYesNo(answer);
+    if (yes === null) {
+      ctx.steps.unshift(step);             // לא הבנו — שואלים שוב
+      await session.reply(msg, '🤔 לא הבנתי. ענה *כן* או *לא*.');
+      ctx.at = Date.now();
+      awaiting = ctx;
+      return;
+    }
+    ctx.answers.isAltCar = yes;
+
+    if (yes) {
+      // אולי המספר כבר בהודעה ("כן 33140703") — אז אין מה לשאול
+      const inline = carNumber(answer);
+      if (inline) ctx.answers.altCar = inline;
+      else ctx.steps.unshift('altCarNumber');
+    }
+  } else if (step === 'altCarNumber') {
+    const num = carNumber(answer);
+    if (!num) {
+      ctx.steps.unshift(step);
+      await session.reply(msg, '🔢 צריך 7 או 8 ספרות. נסה שוב.');
+      ctx.at = Date.now();
+      awaiting = ctx;
+      return;
+    }
+    ctx.answers.altCar = num;
+  } else {
+    ctx.answers[step] = answer;
+  }
 
   // עוד שאלה בתור — שואלים ולא כותבים עדיין
   if (ctx.steps.length) {
+    awaiting = ctx;
     await ask(session, msg, ctx);
     return;
   }
@@ -233,7 +265,12 @@ async function onText(session, msg, text) {
   }
 
   try {
-    await updateRowFields(ctx.row, { ...ctx.answers, guests });
+    await updateRowFields(ctx.row, {
+      customer: ctx.answers.customer,
+      guestNames: ctx.answers.guestNames,
+      altCar: ctx.answers.isAltCar === false ? '' : ctx.answers.altCar,
+      guests,
+    });
     await session.reply(msg, answerSavedMessage(ctx.answers, guests, ctx.row));
     console.log(`📝 שורה ${ctx.row}: ${JSON.stringify(ctx.answers)}${guests ? ` (${guests})` : ''}`);
   } catch (e) {
