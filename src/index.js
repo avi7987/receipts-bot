@@ -11,12 +11,13 @@
 import 'dotenv/config';
 import http from 'http';
 import fs from 'fs';
+import crypto from 'crypto';
 import {
   createSession, downloadReceipt, downloadReceiptById,
   msgIdOf, updateOrReply, scanGroupMedia, sendToGroup,
 } from './wa.js';
 import { readReceipt, visionAvailable } from './vision.js';
-import { appendRow, rowFrom, sheetUrl, sheetsConfigured, stampChecked, findRow, pendingSummary, updateRowFields } from './sheets.js';
+import { appendRow, rowFrom, sheetUrl, sheetsConfigured, stampChecked, findRow, pendingSummary, updateRowFields, pendingRows } from './sheets.js';
 import { saveReceipt, storageMode, saveForServing, resolveServed, servingConfigured } from './storage.js';
 
 import * as state from './state.js';
@@ -373,8 +374,53 @@ async function boot() {
 //
 //  שתי נקודות בלבד. אין דפדוף בתיקייה, אין רשימת קבצים, ואין שום
 //  דרך להגיע לקובץ בלי לדעת את המזהה בן 32 התווים שלו.
-http.createServer((req, res) => {
+// מאיזה מקור מותר לקרוא מאיתנו. ריק = אף אחד (התנהגות ברירת המחדל
+// של הדפדפן). מוגדר רק כדי שהכלי שממלא את טופס ההוצאות יוכל למשוך
+// את הקבלות — הכיוון הוא מאיתנו אליו, אף פעם לא הפוך.
+const ALLOW_ORIGIN = (process.env.ALLOW_ORIGIN || '').trim();
+
+function cors(req, headers = {}) {
+  const origin = req.headers.origin;
+  if (!ALLOW_ORIGIN || origin !== ALLOW_ORIGIN) return headers;
+  return {
+    ...headers,
+    'Access-Control-Allow-Origin': ALLOW_ORIGIN,
+    'Vary': 'Origin',
+  };
+}
+
+// מפתח לנקודת הקבלות הממתינות — נגזר מאותו סוד של הקישורים
+const PENDING_KEY = process.env.LINK_SECRET
+  ? crypto.createHash('sha256').update(`${process.env.LINK_SECRET}:pending`).digest('hex').slice(0, 32)
+  : null;
+
+http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, cors(req, { 'Access-Control-Max-Age': '86400' }));
+    res.end();
+    return;
+  }
+
+  // הקבלות שממתינות להזנה — בשביל הכלי שממלא את הטופס
+  if (url.pathname === '/pending') {
+    if (!PENDING_KEY || url.searchParams.get('k') !== PENDING_KEY) {
+      res.writeHead(403, cors(req, { 'Content-Type': 'application/json; charset=utf-8' }));
+      res.end(JSON.stringify({ error: 'forbidden' }));
+      return;
+    }
+    try {
+      const rows = await pendingRows();
+      res.writeHead(200, cors(req, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }));
+      res.end(JSON.stringify({ ok: true, count: rows.length, rows }));
+    } catch (e) {
+      console.error('/pending נכשל:', e.message || e);
+      res.writeHead(500, cors(req, { 'Content-Type': 'application/json; charset=utf-8' }));
+      res.end(JSON.stringify({ error: short(e.message) }));
+    }
+    return;
+  }
 
   // הורדת קבלה: /r/<מזהה>.jpg
   if (url.pathname.startsWith('/r/')) {
@@ -389,13 +435,13 @@ http.createServer((req, res) => {
       return;
     }
     // filename* מקודד לפי RFC 5987 — בלעדיו שם קובץ בעברית נשבר
-    res.writeHead(200, {
+    res.writeHead(200, cors(req, {
       'Content-Type': file.mime,
       'Content-Length': file.size,
       'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
       'Cache-Control': 'private, max-age=86400',
       'X-Content-Type-Options': 'nosniff',
-    });
+    }));
     if (req.method === 'HEAD') { res.end(); return; }
     fs.createReadStream(file.path).pipe(res);
     return;

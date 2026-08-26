@@ -415,6 +415,77 @@ export async function pendingSummary() {
   }
 }
 
+// ── הקבלות הממתינות, במלואן ─────────────────────────────────────────
+//
+//  מזין את הכלי שממלא את טופס ההוצאות. מחזיר רק שורות שלא סומנו,
+//  עם כל מה שהטופס צריך — כולל מיפוי הקטגוריה לסוג ההוצאה שלו.
+const EXPENSE_TYPE = {
+  'דלק': 'תדלוק - רכב חברה',
+  'חניה': 'חניה - רכב חברה',
+  'מסעדה': 'אירוח בארץ',
+};
+
+/** @returns {Promise<Array<object>>} */
+export async function pendingRows() {
+  if (!sheetsConfigured()) return [];
+
+  const token = await accessToken();
+  await ensureSetup(token);
+
+  const last = colLetter(HEADERS.length);
+  const res = await fetch(
+    `${API}/${SHEET_ID}/values/${encodeURIComponent(`${TAB}!A2:${last}`)}?valueRenderOption=UNFORMATTED_VALUE`,
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20000) },
+  );
+  if (!res.ok) throw new Error(`Sheets read ${res.status}`);
+  const rows = (await res.json()).values || [];
+
+  // בפורמט UNFORMATTED תאריך ושעה חוזרים כמספר סידורי של גוגל
+  const fromSerial = (v) => {
+    if (typeof v !== 'number') return null;
+    return new Date(Math.round((v - 25569) * 86400 * 1000));
+  };
+  const pad = (n) => String(n).padStart(2, '0');
+
+  const out = [];
+  rows.forEach((r, i) => {
+    if (r[COL_DONE] === true) return;                    // כבר הוזן
+    const amount = numOf(r[COL_TOTAL]);
+    if (amount === null) return;                         // בלי סכום אין מה להזין
+
+    const d = fromSerial(r[COL_DATE]);
+    const t = typeof r[COL_TIME] === 'number' ? r[COL_TIME] : null;
+    let when = null;
+    if (d) {
+      const secs = t !== null ? Math.round(t * 86400) : 0;
+      const hh = pad(Math.floor(secs / 3600) % 24);
+      const mm = pad(Math.floor(secs / 60) % 60);
+      const ss = pad(secs % 60);
+      when = `${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)}/${d.getUTCFullYear()} ${hh}:${mm}:${ss}`;
+    }
+
+    const category = String(r[COL_CATEGORY] || '').trim();
+    // הקישור נשמר כנוסחת HYPERLINK — מחלצים ממנה את הכתובת
+    const fileCell = String(r[COL_FILE] || '');
+    const url = /HYPERLINK\("([^"]+)"/.exec(fileCell)?.[1] || null;
+
+    out.push({
+      row: i + 2,
+      vendor: String(r[COL_VENDOR] || ''),
+      category,
+      expenseType: EXPENSE_TYPE[category] || null,
+      date: when,
+      invoice: String(r[COL_DOC] ?? '').replace(/^'/, ''),
+      amount,
+      guests: typeof r[COL_GUESTS] === 'number' ? r[COL_GUESTS] : null,
+      customer: String(r[COL_CUSTOMER] || '').trim() || null,
+      guestNames: String(r[COL_GUEST_NAMES] || '').trim() || null,
+      file: url,
+    });
+  });
+  return out;
+}
+
 // ── חיפוש שורה קיימת ────────────────────────────────────────────────
 //
 //  הזיכרון המקומי של הבוט לא יודע שמחקת שורה מהגיליון. לכן לפני
