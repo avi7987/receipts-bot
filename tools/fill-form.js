@@ -95,47 +95,58 @@
   //  "Expense Type" אינו select רגיל אלא רכיב עם תיבת חיפוש. הצבת
   //  טקסט לתוכו לא בוחרת כלום — הוא נשאר "-- None --", ואז השדות
   //  שתלויים בו לא נטענים. לכן שתי דרכים, לפי הסדר.
+  //  השוואה סלחנית: בעברית משתמשים בכמה תווי מקף שנראים זהים אבל
+  //  שונים בקוד (- ־ – —), וגם הרווחים סביבם לא עקביים.
+  const flat = (s) => norm(s)
+    .replace(/[־‐-―﹘﹣－]/g, '-')
+    .replace(/\s*-\s*/g, '-')
+    .replace(/["'״׳]/g, '"');
+  const same = (a, b) => flat(a) === flat(b);
+
   async function selectOption(labelText, wanted, root) {
     const el = fieldByLabel(labelText, root);
     if (!el) return 'השדה לא נמצא';
-    const want = norm(wanted);
 
-    // 1. אם יש select אמיתי מתחת לרכיב — גם אם הוא מוסתר
-    const group = el.closest('.form-group, .sc-form-field, .field-wrapper, div');
-    const sel = el.tagName === 'SELECT' ? el : group?.querySelector('select');
-    if (sel && sel.options?.length) {
-      const opt = [...sel.options].find((o) => norm(o.text) === want)
-        || [...sel.options].find((o) => norm(o.text).includes(want));
-      if (opt) {
-        sel.value = opt.value;
-        sel.dispatchEvent(new Event('change', { bubbles: true }));
-        await sleep(600);
-        if (norm(sel.options[sel.selectedIndex]?.text).includes(want)) return null;
-      }
+    // 1. select אמיתי — מחפשים בכל החלון את זה שיש בו את האפשרות,
+    //    ולא מסתמכים על מבנה ה-DOM סביב התווית
+    const sel = [...root.querySelectorAll('select')]
+      .find((s) => [...s.options].some((o) => same(o.text, wanted)));
+    if (sel) {
+      const opt = [...sel.options].find((o) => same(o.text, wanted));
+      sel.value = opt.value;
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+      await sleep(700);
+      if (same(sel.options[sel.selectedIndex]?.text || '', wanted)) return null;
     }
 
-    // 2. ווידג'ט: פותחים, מקלידים בחיפוש, לוחצים על האפשרות
+    // 2. ווידג'ט: פותחים ולוחצים על האפשרות.
+    //    לא מקלידים בתיבת החיפוש — סינון שגוי מעלים את האפשרות.
+    const group = el.closest('.form-group, .sc-form-field, .field-wrapper, div');
     el.click();
-    group?.querySelector('.select2-arrow, .dropdown-toggle, [role=button]')?.click();
-    await sleep(500);
+    group?.querySelector('.select2-arrow, .dropdown-toggle, [role=button], .select2-selection')?.click();
+    await sleep(600);
 
-    const search = [...document.querySelectorAll(
-      'input[type=search], .select2-search input, input.select2-input, .dropdown-menu input',
-    )].filter(visible).pop();
-    if (search) { setValue(search, wanted); await sleep(600); }
+    const optionSel = '[role=option], li, .select2-result-label, .dropdown-item, .select2-results__option, option';
+    const option = await waitFor(() => [...document.querySelectorAll(optionSel)]
+      .filter(visible)
+      .find((o) => same(o.textContent, wanted)), { timeout: 5000 });
 
-    const option = await waitFor(() => [...document.querySelectorAll(
-      '[role=option], li, .select2-result-label, .dropdown-item, .select2-results__option',
-    )].filter(visible).find((o) => norm(o.textContent) === want), { timeout: 5000 });
+    if (!option) {
+      // מדווחים מה כן היה שם — בלי זה זו שגיאה עיוורת
+      const seen = [...document.querySelectorAll(optionSel)]
+        .filter(visible)
+        .map((o) => norm(o.textContent))
+        .filter((t) => t && t.length < 60)
+        .slice(0, 8);
+      return `לא נמצאה "${wanted}". מה שנראה: ${seen.join(' | ') || '(רשימה ריקה)'}`;
+    }
 
-    if (!option) return `לא נמצאה האפשרות "${wanted}" ברשימה`;
     option.click();
-    await sleep(800);
+    await sleep(900);
 
-    // מאמתים מול מה שמוצג עכשיו
     const now = fieldByLabel(labelText, root);
-    const shown = norm(now?.value || now?.textContent || group?.textContent || '');
-    return shown.includes(want) ? null : `נבחר משהו אחר: "${shown.slice(0, 40)}"`;
+    const shown = flat(now?.value || now?.textContent || group?.textContent || '');
+    return shown.includes(flat(wanted)) ? null : `נבחר משהו אחר: "${shown.slice(0, 40)}"`;
   }
 
   // ── צירוף הקובץ ────────────────────────────────────────────────────
@@ -181,7 +192,7 @@
 
   const bar = document.createElement('div');
   bar.setAttribute('style', 'background:#263238;color:#fff;padding:10px 14px;display:flex;gap:8px;align-items:center;border-radius:7px 7px 0 0');
-  bar.innerHTML = '<b style="flex:1">מילוי טופס הוצאות <span style="opacity:.6;font-weight:400">v3</span></b>';
+  bar.innerHTML = '<b style="flex:1">מילוי טופס הוצאות <span style="opacity:.6;font-weight:400">v4</span></b>';
 
   const stopBtn = document.createElement('button');
   stopBtn.textContent = 'עצור';
