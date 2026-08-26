@@ -119,29 +119,53 @@
       if (same(sel.options[sel.selectedIndex]?.text || '', wanted)) return null;
     }
 
-    // 2. ווידג'ט: פותחים ולוחצים על האפשרות.
-    //    לא מקלידים בתיבת החיפוש — סינון שגוי מעלים את האפשרות.
+    // 2. ווידג'ט. שתי מלכודות שנפלתי בהן:
+    //    · לחיצה על השדה ואז על החץ = פותח וסוגר. לוחצים דבר אחד,
+    //      בודקים אם נפתח, ורק אז מנסים את הבא.
+    //    · רכיבים כאלה מקשיבים ל-mousedown ולא ל-click.
     const group = el.closest('.form-group, .sc-form-field, .field-wrapper, div');
-    el.click();
-    group?.querySelector('.select2-arrow, .dropdown-toggle, [role=button], .select2-selection')?.click();
-    await sleep(600);
-
     const optionSel = '[role=option], li, .select2-result-label, .dropdown-item, .select2-results__option, option';
+
+    // "נפתח" = יש ברשימה אפשרות שאנחנו מזהים, ולא סתם תפריט אחר בעמוד
+    const listOpen = () => [...document.querySelectorAll(optionSel)]
+      .filter(visible)
+      .some((o) => same(o.textContent, wanted) || same(o.textContent, '-- None --'));
+
+    const mouse = (target) => {
+      if (!target) return;
+      for (const type of ['pointerdown', 'mousedown', 'mouseup', 'click']) {
+        target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+      }
+    };
+
+    const arrow = group?.querySelector(
+      '.select2-arrow, .select2-selection__arrow, .dropdown-toggle, .select2-selection, [role=button]',
+    );
+
+    let opened = false;
+    for (const target of [el, arrow, group]) {
+      if (!target) continue;
+      mouse(target);
+      if (await waitFor(listOpen, { timeout: 1800, every: 120 })) { opened = true; break; }
+    }
+
+    if (!opened) return `הרשימה לא נפתחה (${labelText})`;
+
     const option = await waitFor(() => [...document.querySelectorAll(optionSel)]
       .filter(visible)
-      .find((o) => same(o.textContent, wanted)), { timeout: 5000 });
+      .find((o) => same(o.textContent, wanted)), { timeout: 4000 });
 
     if (!option) {
-      // מדווחים מה כן היה שם — בלי זה זו שגיאה עיוורת
+      // מדווחים מה כן היה ברשימה — בלי זה זו שגיאה עיוורת
       const seen = [...document.querySelectorAll(optionSel)]
         .filter(visible)
         .map((o) => norm(o.textContent))
         .filter((t) => t && t.length < 60)
-        .slice(0, 8);
-      return `לא נמצאה "${wanted}". מה שנראה: ${seen.join(' | ') || '(רשימה ריקה)'}`;
+        .slice(0, 10);
+      return `לא נמצאה "${wanted}". ברשימה: ${seen.join(' | ') || '(ריקה)'}`;
     }
 
-    option.click();
+    mouse(option);
     await sleep(900);
 
     const now = fieldByLabel(labelText, root);
@@ -192,7 +216,7 @@
 
   const bar = document.createElement('div');
   bar.setAttribute('style', 'background:#263238;color:#fff;padding:10px 14px;display:flex;gap:8px;align-items:center;border-radius:7px 7px 0 0');
-  bar.innerHTML = '<b style="flex:1">מילוי טופס הוצאות <span style="opacity:.6;font-weight:400">v4</span></b>';
+  bar.innerHTML = '<b style="flex:1">מילוי טופס הוצאות <span style="opacity:.6;font-weight:400">v5</span></b>';
 
   const stopBtn = document.createElement('button');
   stopBtn.textContent = 'עצור';
