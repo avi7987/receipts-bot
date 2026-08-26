@@ -182,10 +182,10 @@
   }
 
   // ── צירוף הקובץ ────────────────────────────────────────────────────
-  async function attach(url, name) {
-    const input = [...document.querySelectorAll('input[type=file]')].pop();
-    if (!input) return 'לא נמצא שדה קובץ';
-
+  //  חשוב: מחפשים את שדה הקובץ בתוך החלון בלבד. לטופס עצמו יש אזור
+  //  "Add attachments" נפרד, וכשחיפשתי בכל העמוד הקובץ הלך לשם —
+  //  הצרופה של השורה נשארה ריקה והחלון סירב להיסגר.
+  async function attach(url, name, root) {
     let blob;
     try {
       const r = await fetch(url, { mode: 'cors', credentials: 'omit' });
@@ -194,15 +194,42 @@
     } catch (e) {
       return `הורדת הקובץ נכשלה: ${e.message}`;
     }
+    const kb = Math.round(blob.size / 1024);
 
-    const file = new File([blob], name, { type: blob.type || 'image/jpeg' });
-    const dt = new DataTransfer();
-    dt.items.add(file);
-    input.files = dt.files;
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-    // חלק מהרכיבים מקשיבים ל-drop ולא ל-change
-    input.dispatchEvent(new CustomEvent('drop', { bubbles: true, detail: dt }));
-    return null;
+    // מועמדים לפי קרבה: ליד כפתור Upload, ואז כל שדה קובץ בחלון
+    const upload = buttonByText('Upload', root);
+    const near = upload?.closest('div, .form-group, .sc-attachment')
+      ?.querySelectorAll('input[type=file]') || [];
+    const candidates = [...new Set([...near, ...root.querySelectorAll('input[type=file]')])];
+    if (!candidates.length) return 'לא נמצא שדה קובץ בתוך החלון';
+
+    const before = norm(root.textContent);
+    const shortName = name.replace(/\.[^.]+$/, '').slice(0, 12);
+
+    for (const input of candidates) {
+      const file = new File([blob], name, { type: blob.type || 'image/jpeg' });
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      try { input.files = dt.files; } catch { continue; }
+
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      // חלק מהרכיבים מקשיבים לגרירה ולא לשינוי
+      const drop = new DragEvent('drop', { bubbles: true, cancelable: true });
+      Object.defineProperty(drop, 'dataTransfer', { value: dt });
+      input.dispatchEvent(drop);
+
+      // אימות: משהו בחלון השתנה — שם הקובץ, גודלו, או שורת קובץ חדשה
+      const ok = await waitFor(() => {
+        const now = norm(root.textContent);
+        return now !== before
+          && (now.includes(shortName) || now.includes(`${kb}`) || /\.(jpe?g|png|pdf)/i.test(now));
+      }, { timeout: 6000, every: 300 });
+
+      if (ok) return null;
+    }
+
+    return `הקובץ (${kb}KB) לא נקלט ברכיב ההעלאה`;
   }
 
   // ── כפתורים ────────────────────────────────────────────────────────
@@ -224,7 +251,7 @@
 
   const bar = document.createElement('div');
   bar.setAttribute('style', 'background:#263238;color:#fff;padding:10px 14px;display:flex;gap:8px;align-items:center;border-radius:7px 7px 0 0');
-  bar.innerHTML = '<b style="flex:1">מילוי טופס הוצאות <span style="opacity:.6;font-weight:400">v6</span></b>';
+  bar.innerHTML = '<b style="flex:1">מילוי טופס הוצאות <span style="opacity:.6;font-weight:400">v7</span></b>';
 
   const stopBtn = document.createElement('button');
   stopBtn.textContent = 'עצור';
@@ -364,7 +391,7 @@
       log('❌ אין קובץ מצורף לשורה הזו', '#c62828');
       break;
     }
-    const attachErr = await attach(item.file, `${item.vendor || 'receipt'}_${item.amount}.jpg`);
+    const attachErr = await attach(item.file, `${item.vendor || 'receipt'}_${Math.round(item.amount)}.jpg`, modal);
     if (attachErr) {
       problems.push(`${title}: ${attachErr}`);
       log(`❌ ${attachErr}`, '#c62828');
