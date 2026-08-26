@@ -440,6 +440,15 @@ export async function pendingRows() {
   if (!res.ok) throw new Error(`Sheets read ${res.status}`);
   const rows = (await res.json()).values || [];
 
+  // הקישור נשמר כנוסחת HYPERLINK. בקריאה גולמית גוגל מחזירה את
+  // הטקסט המוצג ("📎 פתח") ולא את הכתובת — לכן קוראים את העמודה
+  // הזו בנפרד, במפורש כנוסחה.
+  const fileCol = colLetter(COL_FILE + 1);
+  const formulas = ((await (await fetch(
+    `${API}/${SHEET_ID}/values/${encodeURIComponent(`${TAB}!${fileCol}2:${fileCol}`)}?valueRenderOption=FORMULA`,
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20000) },
+  )).json()).values) || [];
+
   // בפורמט UNFORMATTED תאריך ושעה חוזרים כמספר סידורי של גוגל
   const fromSerial = (v) => {
     if (typeof v !== 'number') return null;
@@ -465,9 +474,9 @@ export async function pendingRows() {
     }
 
     const category = String(r[COL_CATEGORY] || '').trim();
-    // הקישור נשמר כנוסחת HYPERLINK — מחלצים ממנה את הכתובת
-    const fileCell = String(r[COL_FILE] || '');
-    const url = /HYPERLINK\("([^"]+)"/.exec(fileCell)?.[1] || null;
+    const fileCell = String(formulas[i]?.[0] || '');
+    const url = /HYPERLINK\("([^"]+)"/.exec(fileCell)?.[1]
+      || (/^https?:\/\//.test(fileCell) ? fileCell : null);
 
     out.push({
       row: i + 2,
