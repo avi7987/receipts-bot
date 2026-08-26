@@ -81,23 +81,38 @@ export function receiptMessage(r, meta = {}) {
 //  יש שדות ש-ServiceNow דורש ואי אפשר לקרוא מהקבלה: מי ישב איתך,
 //  את מי פגשת. הרגע הכי טוב לשאול הוא מיד אחרי הצילום, כשאתה עוד
 //  זוכר — ולא שבועיים אחר כך מול הטופס.
-export function followUpQuestion(category, guests) {
-  if (category === 'מסעדה') {
-    return guests
-      ? `👥 *מי היו הסועדים?*\n_זיהיתי ${guests} סועדים בקבלה. כתוב את השמות בהודעה הבאה._`
-      : '👥 *מי היו הסועדים?*\n_כתוב את השמות בהודעה הבאה, למשל: אני, רמי לוי, דנה כהן_';
+/**
+ * אילו שאלות לשאול, לפי קטגוריה. הסדר הוא סדר השאלה.
+ * אוכל דורש גם לקוח וגם שמות סועדים — שני שדות נפרדים בטופס.
+ */
+export function followUpSteps(category) {
+  if (category === 'מסעדה') return ['customer', 'guestNames'];
+  if (category === 'חניה') return ['customer'];
+  return [];
+}
+
+export function stepQuestion(step, category, guests) {
+  if (step === 'customer') {
+    return category === 'חניה'
+      ? '🤝 *מי הלקוח?*\n_עם מי נפגשת. כתוב בהודעה הבאה._'
+      : '🤝 *מי הלקוח?*\n_שם הלקוח שאירחת. כתוב בהודעה הבאה._';
   }
-  if (category === 'חניה') {
-    return '🤝 *עם מי נפגשת?*\n_כתוב את שם הלקוח בהודעה הבאה._';
+  if (step === 'guestNames') {
+    return guests
+      ? `👥 *מי היו הסועדים?*\n_זיהיתי ${guests} סועדים בקבלה. כתוב את השמות._`
+      : '👥 *מי היו הסועדים?*\n_כתוב את השמות, למשל: אני, רמי לוי, דנה כהן_';
   }
   return null;
 }
 
-/** אישור אחרי שהתשובה נקלטה */
-export function answerSavedMessage(category, who, guests, row) {
-  const what = category === 'חניה' ? 'הלקוח' : 'הסועדים';
-  const extra = category === 'מסעדה' && guests ? `\n👥 ${guests} סועדים` : '';
-  return `✅ *נשמר*\n📝 ${what}: ${who}${extra}\n📊 עודכן בשורה ${row}`;
+/** אישור אחרי שהתשובה האחרונה נקלטה */
+export function answerSavedMessage(answers, guests, row) {
+  const lines = ['✅ *נשמר*'];
+  if (answers.customer) lines.push(`🤝 לקוח: ${answers.customer}`);
+  if (answers.guestNames) lines.push(`📝 סועדים: ${answers.guestNames}`);
+  if (guests) lines.push(`👥 ${guests} סועדים`);
+  lines.push(`📊 עודכן בשורה ${row}`);
+  return lines.join('\n');
 }
 
 /** תמונה שהיא לא קבלה */

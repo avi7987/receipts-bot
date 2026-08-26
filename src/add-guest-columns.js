@@ -45,18 +45,29 @@ if (gid === undefined) { console.error(`❌ אין לשונית "${TAB}"`); proc
 const headRow = ((await (await fetch(`${API}/${SHEET_ID}/values/${R('A1:N1')}`, { headers: auth })).json()).values || [[]])[0];
 console.log('כותרות כרגע:', headRow.filter(Boolean).join(' · '), '\n');
 
-if (headRow[6] === 'סועדים' && headRow[7] === 'אורחים / לקוח') {
+if (headRow[7] === 'לקוח' && headRow[8] === 'אורחים') {
   console.log('✅ העמודות כבר קיימות — אין מה לעשות.');
   process.exit(0);
 }
 
-// שתי עמודות חדשות במיקום 6 (אחרי "קטגוריה")
+// טופס ההוצאות דורש באוכל גם "לקוח" וגם "שמות סועדים" — שני שדות
+// נפרדים. לכן העמודה שאיחדה אותם מתפצלת לשתיים.
+
+// שלב 1: הכותרת הישנה "אורחים / לקוח" הופכת ל"לקוח"
+if (headRow[7] === 'אורחים / לקוח') {
+  await fetch(`${API}/${SHEET_ID}/values/${R('H1')}?valueInputOption=RAW`, {
+    method: 'PUT', headers: jauth, body: JSON.stringify({ values: [['לקוח']] }),
+  });
+  console.log('שונה שם העמודה H ל-"לקוח".');
+}
+
+// שלב 2: עמודה חדשה "אורחים" אחרי "לקוח"
 const ins = await fetch(`${API}/${SHEET_ID}:batchUpdate`, {
   method: 'POST', headers: jauth,
   body: JSON.stringify({
     requests: [{
       insertDimension: {
-        range: { sheetId: gid, dimension: 'COLUMNS', startIndex: 6, endIndex: 8 },
+        range: { sheetId: gid, dimension: 'COLUMNS', startIndex: 8, endIndex: 9 },
         inheritFromBefore: false,
       },
     }],
@@ -64,10 +75,9 @@ const ins = await fetch(`${API}/${SHEET_ID}:batchUpdate`, {
 });
 if (!ins.ok) { console.error('❌ ההוספה נכשלה:', (await ins.text()).slice(0, 250)); process.exit(1); }
 
-await fetch(`${API}/${SHEET_ID}/values/${R('G1:H1')}?valueInputOption=RAW`, {
-  method: 'PUT', headers: jauth,
-  body: JSON.stringify({ values: [['סועדים', 'אורחים / לקוח']] }),
+await fetch(`${API}/${SHEET_ID}/values/${R('I1')}?valueInputOption=RAW`, {
+  method: 'PUT', headers: jauth, body: JSON.stringify({ values: [['אורחים']] }),
 });
 
-console.log('✅ נוספו "סועדים" ו"אורחים / לקוח" אחרי "קטגוריה".');
+console.log('✅ נוספה עמודת "אורחים" אחרי "לקוח".');
 console.log('   הרץ עכשיו  npm run design  כדי ליישר את העיצוב.');

@@ -66,12 +66,12 @@ const N = HEADERS.length;                 // 8 עמודות
 console.log(`לשונית "${TAB}" · ${rowsA.length} שורות נתונים\n`);
 
 // ── ניקוי שאריות הסיכום הישן ────────────────────────────────────────
-await fetch(`${API}/${SHEET_ID}/values/${R('L1:R12')}:clear`, { method: 'POST', headers: jauth, body: '{}' });
+await fetch(`${API}/${SHEET_ID}/values/${R('M1:S12')}:clear`, { method: 'POST', headers: jauth, body: '{}' });
 
 // ── כרטיס הסיכום, במקומו החדש ───────────────────────────────────────
 const T = 'D';   // עמודת הסכום
-const D = 'I';   // עמודת הסימון
-await fetch(`${API}/${SHEET_ID}/values/${R('M1:N5')}?valueInputOption=USER_ENTERED`, {
+const D = 'J';   // עמודת הסימון
+await fetch(`${API}/${SHEET_ID}/values/${R('N1:O5')}?valueInputOption=USER_ENTERED`, {
   method: 'PUT', headers: jauth,
   body: JSON.stringify({
     values: [
@@ -165,10 +165,11 @@ fmt(3, { type: 'CURRENCY', pattern: '#,##0.00 ₪' }, 'RIGHT');         // סכ�
 fmt(4, null, 'CENTER');                                               // מספר חשבונית
 fmt(5, null, 'CENTER');                                               // קטגוריה
 fmt(6, { type: 'NUMBER', pattern: '0' }, 'CENTER');                   // סועדים
-fmt(7, null, 'RIGHT');                                                // אורחים / לקוח
-fmt(8, null, 'CENTER');                                               // תיבת סימון
-fmt(9, { type: 'DATE_TIME', pattern: 'dd/MM/yyyy HH:mm' }, 'CENTER'); // חותמת הסימון
-fmt(10, null, 'CENTER');                                              // קישור
+fmt(7, null, 'RIGHT');                                                // לקוח
+fmt(8, null, 'RIGHT');                                                // אורחים
+fmt(9, null, 'CENTER');                                               // תיבת סימון
+fmt(10, { type: 'DATE_TIME', pattern: 'dd/MM/yyyy HH:mm' }, 'CENTER');// חותמת הסימון
+fmt(11, null, 'CENTER');                                              // קישור
 
 // הסכום מודגש — זה המספר שהעין מחפשת
 req.push({
@@ -180,7 +181,7 @@ req.push({
 });
 
 // רוחבי עמודות
-[[0, 100], [1, 70], [2, 175], [3, 120], [4, 130], [5, 110], [6, 75], [7, 190], [8, 110], [9, 140], [10, 75], [11, 26], [12, 155], [13, 130]]
+[[0, 95], [1, 65], [2, 165], [3, 115], [4, 125], [5, 105], [6, 70], [7, 130], [8, 175], [9, 105], [10, 135], [11, 70], [12, 26], [13, 155], [14, 130]]
   .forEach(([i, px]) => req.push({
     updateDimensionProperties: {
       range: { sheetId: gid, dimension: 'COLUMNS', startIndex: i, endIndex: i + 1 },
@@ -208,7 +209,7 @@ req.push({
     rule: {
       ranges: [{ sheetId: gid, startRowIndex: 1, startColumnIndex: 0, endColumnIndex: N }],
       booleanRule: {
-        condition: { type: 'CUSTOM_FORMULA', values: [{ userEnteredValue: '=$I2=TRUE' }] },
+        condition: { type: 'CUSTOM_FORMULA', values: [{ userEnteredValue: '=$J2=TRUE' }] },
         format: { backgroundColor: DONE_BG, textFormat: { foregroundColor: DONE_INK } },
       },
     },
@@ -216,10 +217,10 @@ req.push({
 });
 
 // ── כרטיס הסיכום ────────────────────────────────────────────────────
-req.push({ mergeCells: { range: range(0, 1, 12, 14), mergeType: 'MERGE_ALL' } });
+req.push({ mergeCells: { range: range(0, 1, 13, 15), mergeType: 'MERGE_ALL' } });
 req.push({
   repeatCell: {
-    range: range(0, 1, 12, 14),
+    range: range(0, 1, 13, 15),
     cell: {
       userEnteredFormat: {
         backgroundColor: INK,
@@ -245,7 +246,7 @@ req.push({
 });
 req.push({
   repeatCell: {
-    range: range(1, 4, 13, 14),
+    range: range(1, 4, 14, 15),
     cell: {
       userEnteredFormat: {
         backgroundColor: CARD,
@@ -259,7 +260,7 @@ req.push({
 });
 req.push({
   repeatCell: {
-    range: range(4, 5, 13, 14),
+    range: range(4, 5, 14, 15),
     cell: {
       userEnteredFormat: {
         backgroundColor: CARD,
@@ -275,7 +276,7 @@ req.push({
   const solid = { style: 'SOLID', color: LINE };
   req.push({
     updateBorders: {
-      range: range(0, 5, 12, 14),
+      range: range(0, 5, 13, 15),
       innerHorizontal: solid, innerVertical: solid,
       top: solid, bottom: solid, left: solid, right: solid,
     },

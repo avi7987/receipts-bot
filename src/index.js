@@ -22,7 +22,7 @@ import { saveReceipt, storageMode, saveForServing, resolveServed, servingConfigu
 import * as state from './state.js';
 import {
   receiptMessage, notReceiptMessage, errorMessage, heDate, money,
-  followUpQuestion, answerSavedMessage,
+  followUpSteps, stepQuestion, answerSavedMessage,
 } from './format.js';
 
 const STARTED_AT = Date.now();
@@ -177,41 +177,64 @@ async function handleReceipt(session, job) {
 //  קבלת אוכל דורשת שמות סועדים, קבלת חניה דורשת שם לקוח — ואת שניהם
 //  אי אפשר לקרוא מהתמונה. שואלים מיד, כשאתה עוד זוכר, ושומרים את
 //  התשובה לשורה. אם לא תענה — התא נשאר ריק והכלי ימלא TBD.
-let awaiting = null;   // { row, category, guests, at }
+let awaiting = null;   // { row, category, guests, steps, answers, at }
 const ANSWER_WINDOW_MIN = 90;
 
 async function askFollowUp(session, replyTo, data, row) {
-  const question = followUpQuestion(data.category, data.guests);
-  if (!question) return;
+  const steps = followUpSteps(data.category);
+  if (!steps.length) return;
 
-  await (replyTo ? session.reply(replyTo, question) : sendToGroup(session, question));
-  awaiting = { row, category: data.category, guests: data.guests, at: Date.now() };
+  awaiting = {
+    row,
+    category: data.category,
+    guests: data.guests,
+    steps,
+    answers: {},
+    at: Date.now(),
+    replyTo,
+  };
+  await ask(session, replyTo, awaiting);
+}
+
+async function ask(session, replyTo, ctx) {
+  const q = stepQuestion(ctx.steps[0], ctx.category, ctx.guests);
+  if (!q) return;
+  await (replyTo ? session.reply(replyTo, q) : sendToGroup(session, q));
+  ctx.at = Date.now();     // כל שאלה מאריכה את החלון
 }
 
 /** טקסט שנכתב בקבוצה — נחשב תשובה רק אם יש שאלה פתוחה */
 async function onText(session, msg, text) {
   if (!awaiting) return;
 
-  const ageMin = (Date.now() - awaiting.at) / 60000;
-  if (ageMin > ANSWER_WINDOW_MIN) { awaiting = null; return; }
+  if ((Date.now() - awaiting.at) / 60000 > ANSWER_WINDOW_MIN) { awaiting = null; return; }
 
   const answer = text.trim().slice(0, 300);
   if (!answer) return;
 
-  const pending = awaiting;
-  awaiting = null;                       // צורכים את השאלה מיד, שלא תיתפס פעמיים
+  const ctx = awaiting;
+  const step = ctx.steps.shift();          // צורכים את השאלה מיד
+  ctx.answers[step] = answer;
 
-  // באוכל, אם לא זוהה מספר סועדים בקבלה — סופרים מהשמות שכתבת
-  let guests = pending.guests;
-  if (pending.category === 'מסעדה' && !guests) {
-    const names = answer.split(/[,;،]|\sו-|\band\b/).map((s) => s.trim()).filter(Boolean);
+  // עוד שאלה בתור — שואלים ולא כותבים עדיין
+  if (ctx.steps.length) {
+    await ask(session, msg, ctx);
+    return;
+  }
+
+  awaiting = null;
+
+  // אם לא זוהה מספר סועדים בקבלה — סופרים מהשמות שכתבת
+  let guests = ctx.guests;
+  if (ctx.category === 'מסעדה' && !guests && ctx.answers.guestNames) {
+    const names = ctx.answers.guestNames.split(/[,;،]|\sו-|\band\b/).map((s) => s.trim()).filter(Boolean);
     if (names.length) guests = Math.min(names.length, 50);
   }
 
   try {
-    await updateRowFields(pending.row, { who: answer, guests });
-    await session.reply(msg, answerSavedMessage(pending.category, answer, guests, pending.row));
-    console.log(`📝 שורה ${pending.row}: ${pending.category} → "${answer}"${guests ? ` (${guests})` : ''}`);
+    await updateRowFields(ctx.row, { ...ctx.answers, guests });
+    await session.reply(msg, answerSavedMessage(ctx.answers, guests, ctx.row));
+    console.log(`📝 שורה ${ctx.row}: ${JSON.stringify(ctx.answers)}${guests ? ` (${guests})` : ''}`);
   } catch (e) {
     console.error('שמירת התשובה נכשלה:', e.message || e);
     await session.reply(msg, '😕 לא הצלחתי לשמור את התשובה. אפשר למלא ידנית בטבלה.');

@@ -27,14 +27,15 @@ export const HEADERS = [
   'תאריך',            // A
   'שעה',              // B — השעה שמודפסת על הקבלה
   'ספק',              // C
-  'סכום כולל',        // D — כולל טיפ, אם היה
+  'סכום כולל',        // D — כולל מע"מ, וכולל טיפ אם צוין
   'מספר חשבונית',     // E
   'קטגוריה',          // F
-  'סועדים',           // G — לאוכל: כמה אנשים כיסתה החשבונית
-  'אורחים / לקוח',    // H — לאוכל שמות הסועדים, לחניה עם מי נפגשת
-  'הוזן במערכת',      // I — תיבת סימון. ✓ צובע את השורה
-  'סומן בתאריך',      // J — נחתם אוטומטית כשמסמנים
-  'קבלה',             // K — קישור להורדת התמונה
+  'סועדים',           // G — כמה אנשים כיסתה החשבונית (אוכל)
+  'לקוח',             // H — מי הלקוח (אוכל וחניה)
+  'אורחים',           // I — שמות הסועדים (אוכל)
+  'הוזן במערכת',      // J — תיבת סימון. ✓ צובע את השורה
+  'סומן בתאריך',      // K — נחתם אוטומטית כשמסמנים
+  'קבלה',             // L — קישור להורדת התמונה
 ];
 
 const COL_DATE = 0;
@@ -44,13 +45,14 @@ const COL_TOTAL = 3;
 const COL_DOC = 4;
 const COL_CATEGORY = 5;
 const COL_GUESTS = 6;
-const COL_WHO = 7;
-const COL_DONE = 8;
-const COL_STAMP = 9;
-const COL_FILE = 10;
+const COL_CUSTOMER = 7;
+const COL_GUEST_NAMES = 8;
+const COL_DONE = 9;
+const COL_STAMP = 10;
+const COL_FILE = 11;
 
 // עמודות הסיכום, מימין לטבלה עם עמודה ריקה מפרידה (K ו-L)
-const SUMMARY_COL = 12;   // M
+const SUMMARY_COL = 13;   // N
 
 export function sheetsConfigured() {
   return !!(SHEET_ID && SA_EMAIL && SA_KEY);
@@ -80,7 +82,8 @@ export function rowFrom(r, fileUrl = null) {
   row[COL_DOC] = r.doc_number ? `'${r.doc_number}` : '';
   row[COL_CATEGORY] = r.category || '';
   row[COL_GUESTS] = r.guests ?? '';
-  row[COL_WHO] = r.who || '';
+  row[COL_CUSTOMER] = r.customer || '';
+  row[COL_GUEST_NAMES] = r.guestNames || '';
   row[COL_DONE] = false;   // תיבת סימון ריקה
   row[COL_STAMP] = '';     // מתמלא אוטומטית כשמסמנים
   // לחיצה על הקישור מורידה את הקובץ ישירות, בלי מסך תצוגה של Drive
@@ -332,17 +335,22 @@ async function ensureSummary(token) {
 //  כותב רק את התאים שנשלחו, ולא נוגע בשאר השורה.
 /**
  * @param {number} row  מספר השורה בגיליון
- * @param {{who?:string, guests?:number}} fields
+ * @param {{customer?:string, guestNames?:string, guests?:number}} fields
  */
 export async function updateRowFields(row, fields) {
   if (!sheetsConfigured() || !row) return false;
 
+  const cell = (col) => `${TAB}!${colLetter(col + 1)}${row}`;
+
   const data = [];
-  if (fields.who !== undefined && fields.who !== null) {
-    data.push({ range: `${TAB}!${colLetter(COL_WHO + 1)}${row}`, values: [[fields.who]] });
+  if (fields.customer !== undefined && fields.customer !== null) {
+    data.push({ range: cell(COL_CUSTOMER), values: [[fields.customer]] });
+  }
+  if (fields.guestNames !== undefined && fields.guestNames !== null) {
+    data.push({ range: cell(COL_GUEST_NAMES), values: [[fields.guestNames]] });
   }
   if (fields.guests !== undefined && fields.guests !== null) {
-    data.push({ range: `${TAB}!${colLetter(COL_GUESTS + 1)}${row}`, values: [[fields.guests]] });
+    data.push({ range: cell(COL_GUESTS), values: [[fields.guests]] });
   }
   if (!data.length) return false;
 

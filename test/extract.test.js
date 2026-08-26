@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 
 import { normalize, num, isoDate, dateLooksSane, extractJson, clockTime, guestCount } from '../src/vision.js';
 import { rowFrom, HEADERS, colLetter, hebField, normDoc, numOf, sameDate } from '../src/sheets.js';
-import { money, heDate, receiptMessage, errorMessage, followUpQuestion } from '../src/format.js';
+import { money, heDate, receiptMessage, errorMessage, followUpSteps, stepQuestion } from '../src/format.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -115,8 +115,8 @@ test('normalize מכריח קטגוריה מהרשימה הסגורה', () => {
 });
 
 // ── בניית השורה לגיליון ─────────────────────────────────────────────
-test('הטבלה היא 11 עמודות בסדר הנכון', () => {
-  assert.deepEqual(HEADERS, ['תאריך', 'שעה', 'ספק', 'סכום כולל', 'מספר חשבונית', 'קטגוריה', 'סועדים', 'אורחים / לקוח', 'הוזן במערכת', 'סומן בתאריך', 'קבלה']);
+test('הטבלה היא 12 עמודות בסדר הנכון', () => {
+  assert.deepEqual(HEADERS, ['תאריך', 'שעה', 'ספק', 'סכום כולל', 'מספר חשבונית', 'קטגוריה', 'סועדים', 'לקוח', 'אורחים', 'הוזן במערכת', 'סומן בתאריך', 'קבלה']);
 });
 
 test('rowFrom מייצר שורה באורך הכותרות', () => {
@@ -300,25 +300,28 @@ test('normalize מעביר את מספר הסועדים', () => {
 });
 
 // ── שאלת המשך ───────────────────────────────────────────────────────
-test('שאלת המשך רק לאוכל ולחניה', () => {
-  assert.match(followUpQuestion('מסעדה', null), /מי היו הסועדים/);
-  assert.match(followUpQuestion('חניה', null), /עם מי נפגשת/);
-  assert.equal(followUpQuestion('דלק', null), null);
-  assert.equal(followUpQuestion('אחר', null), null);
+test('שאלות המשך רק לאוכל ולחניה', () => {
+  assert.deepEqual(followUpSteps('מסעדה'), ['customer', 'guestNames']);
+  assert.deepEqual(followUpSteps('חניה'), ['customer']);
+  assert.deepEqual(followUpSteps('דלק'), []);
+  assert.deepEqual(followUpSteps('אחר'), []);
 });
 
 test('כשזוהה מספר סועדים — השאלה מזכירה אותו', () => {
-  assert.match(followUpQuestion('מסעדה', 3), /3 סועדים/);
+  assert.match(stepQuestion('guestNames', 'מסעדה', 3), /3 סועדים/);
+  assert.match(stepQuestion('customer', 'חניה', null), /מי הלקוח/);
 });
 
 test('rowFrom כותב את מספר הסועדים', () => {
   const row = rowFrom(normalize({ ...raw, category: 'מסעדה', guests: 3 }));
   assert.equal(row[HEADERS.indexOf('סועדים')], 3);
-  // "אורחים / לקוח" מתמלא רק אחרי שעונים בוואטסאפ, לא ברגע הקליטה
-  assert.equal(row[HEADERS.indexOf('אורחים / לקוח')], '');
+  // לקוח ואורחים מתמלאים רק אחרי שעונים בוואטסאפ
+  assert.equal(row[HEADERS.indexOf('לקוח')], '');
+  assert.equal(row[HEADERS.indexOf('אורחים')], '');
 });
 
-test('אורחים נכתב כשהוא מגיע מהתשובה', () => {
-  const row = rowFrom({ ...normalize(raw), who: 'אני, רמי, דנה' });
-  assert.equal(row[HEADERS.indexOf('אורחים / לקוח')], 'אני, רמי, דנה');
+test('לקוח ואורחים נכתבים כשהם מגיעים מהתשובות', () => {
+  const row = rowFrom({ ...normalize(raw), customer: 'בינת', guestNames: 'אני, רמי' });
+  assert.equal(row[HEADERS.indexOf('לקוח')], 'בינת');
+  assert.equal(row[HEADERS.indexOf('אורחים')], 'אני, רמי');
 });

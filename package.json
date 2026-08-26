@@ -14,7 +14,8 @@
     "test-last": "node src/test-last.js",
     "migrate": "node src/migrate-sheet.js",
     "design": "node src/design-sheet.js",
-    "add-guests": "node src/add-guest-columns.js"
+    "add-guests": "node src/add-guest-columns.js",
+    "repair": "node src/repair-sheet.js"
   },
   "engines": {
     "node": ">=22"
