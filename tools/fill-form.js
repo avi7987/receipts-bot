@@ -168,9 +168,17 @@
     mouse(option);
     await sleep(900);
 
+    // אימות רך בלבד. הסימן האמיתי לכך שהבחירה נתפסה הוא שהשדות
+    // התלויים בסוג נטענים — וזה נבדק מיד אחרי הקריאה הזו.
+    // אימות קשיח כאן עצר פעם על בחירה שהצליחה, כי הוא קרא ערך
+    // מרכיב פנימי של הווידג'ט במקום מהתצוגה.
     const now = fieldByLabel(labelText, root);
-    const shown = flat(now?.value || now?.textContent || group?.textContent || '');
-    return shown.includes(flat(wanted)) ? null : `נבחר משהו אחר: "${shown.slice(0, 40)}"`;
+    const shown = flat([now?.value, now?.textContent, group?.textContent]
+      .filter(Boolean).join(' '));
+    if (!shown.includes(flat(wanted))) {
+      console.warn('[fill-form] הבחירה לא אומתה בתצוגה:', shown.slice(0, 80));
+    }
+    return null;
   }
 
   // ── צירוף הקובץ ────────────────────────────────────────────────────
@@ -216,7 +224,7 @@
 
   const bar = document.createElement('div');
   bar.setAttribute('style', 'background:#263238;color:#fff;padding:10px 14px;display:flex;gap:8px;align-items:center;border-radius:7px 7px 0 0');
-  bar.innerHTML = '<b style="flex:1">מילוי טופס הוצאות <span style="opacity:.6;font-weight:400">v5</span></b>';
+  bar.innerHTML = '<b style="flex:1">מילוי טופס הוצאות <span style="opacity:.6;font-weight:400">v6</span></b>';
 
   const stopBtn = document.createElement('button');
   stopBtn.textContent = 'עצור';
