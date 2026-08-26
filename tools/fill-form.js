@@ -29,7 +29,17 @@
     return null;
   }
 
-  const visible = (el) => el && el.offsetParent !== null;
+  // נראוּת לפי מידות ולא לפי offsetParent:
+  // offsetParent הוא null לכל אלמנט עם position:fixed — כלומר לכל
+  // חלון קופץ. זה מה ששבר את הזיהוי בגרסה הראשונה.
+  const visible = (el) => {
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return false;
+    const st = getComputedStyle(el);
+    return st.visibility !== 'hidden' && st.display !== 'none';
+  };
+
   const norm = (s) => String(s || '').replace(/\s+/g, ' ').replace(/\*/g, '').trim();
 
   // ── איתור שדה לפי התווית שרואים ────────────────────────────────────
@@ -66,10 +76,17 @@
     const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
 
     el.focus();
+    el.dispatchEvent(new Event('focus', { bubbles: true }));
     if (setter) setter.call(el, value); else el.value = value;
-    for (const type of ['input', 'change', 'blur']) {
-      el.dispatchEvent(new Event(type, { bubbles: true }));
-    }
+
+    // שדות עם מסכה (התאריך) מחכים גם להקלדה, לא רק לשינוי ערך
+    el.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'End' }));
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'End' }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    // Tab סוגר את ההשלמה האוטומטית ומקבע את הערך
+    el.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Tab', keyCode: 9 }));
+    el.dispatchEvent(new Event('blur', { bubbles: true }));
     return true;
   }
 
@@ -122,7 +139,7 @@
   const box = document.createElement('div');
   box.id = '__rb_fill';
   box.setAttribute('style', [
-    'position:fixed', 'top:12px', 'left:12px', 'width:420px', 'max-height:85vh',
+    'position:fixed', 'bottom:12px', 'left:12px', 'width:380px', 'max-height:45vh',
     'z-index:2147483647', 'background:#fff', 'border:2px solid #263238',
     'border-radius:10px', 'box-shadow:0 12px 40px rgba(0,0,0,.35)',
     'display:flex', 'flex-direction:column', 'font-family:system-ui,Arial,sans-serif',
@@ -190,14 +207,15 @@
 
   for (const item of ready) {
     if (stopped) break;
-    const title = `${item.vendor || 'ללא ספק'} · ${item.amount} ₪`;
+    const title = `${item.vendor || 'ללא ספק'} · ${Math.round(item.amount)} ₪`;
     log(`<br><b>▶ ${title}</b>`);
 
     const addBtn = buttonByText('Add');
     if (!addBtn) { problems.push(`${title}: לא נמצא כפתור Add`); log('❌ אין כפתור Add', '#c62828'); break; }
     addBtn.click();
 
-    const modal = await waitFor(() => [...document.querySelectorAll('.modal, [role=dialog]')].find(visible));
+    const modalSel = '.modal-content, .modal-dialog, .modal, [role=dialog], [aria-modal=true]';
+    const modal = await waitFor(() => [...document.querySelectorAll(modalSel)].filter(visible).pop());
     if (!modal) { problems.push(`${title}: החלון לא נפתח`); log('❌ החלון לא נפתח', '#c62828'); break; }
     await sleep(400);
 
@@ -210,11 +228,13 @@
     }
     await sleep(700);        // השדות התלויים נטענים אחרי הבחירה
 
-    // השדות המשותפים
+    // הטופס מקבל סכום שלם בלבד — מעגלים לשלם הקרוב
+    const amount = String(Math.round(item.amount));
+
     const fill = [
       ['Expense Date Start', item.date],
       ['Invoice Number', item.invoice],
-      ['Amount', String(item.amount)],
+      ['Amount', amount],
     ];
     // לפי סוג ההוצאה
     if (item.category === 'דלק') fill.push(['Alternative Car Number', ALT_CAR]);
@@ -228,10 +248,19 @@
     let failedField = null;
     for (const [label, value] of fill) {
       const el = fieldByLabel(label, modal);
-      if (!el) { failedField = `${label} — לא נמצא`; break; }
+      if (!el) { failedField = `${label} — השדה לא נמצא`; break; }
+
       setValue(el, value);
-      await sleep(120);
-      if (norm(el.value) !== norm(value)) { failedField = `${label} — הערך לא נתפס`; break; }
+      await sleep(250);
+
+      // שדות עם מסכה עשויים להציג את הערך אחרת ממה שהוקלד.
+      // מספיק שהספרות זהות — לא דורשים התאמה תו-בתו.
+      const digits = (s) => String(s).replace(/\D/g, '');
+      const ok = norm(el.value) === norm(value) || digits(el.value) === digits(value);
+      if (!ok) {
+        failedField = `${label} — הוקלד "${value}" אבל בשדה יש "${el.value}"`;
+        break;
+      }
     }
     if (failedField) {
       problems.push(`${title}: ${failedField}`);
@@ -257,7 +286,7 @@
     if (!confirm) { problems.push(`${title}: אין כפתור Add בחלון`); log('❌ אין Add בחלון', '#c62828'); break; }
     confirm.click();
 
-    const closed = await waitFor(() => ![...document.querySelectorAll('.modal, [role=dialog]')].some(visible), { timeout: 8000 });
+    const closed = await waitFor(() => ![...document.querySelectorAll(modalSel)].some(visible), { timeout: 8000 });
     if (!closed) {
       problems.push(`${title}: החלון לא נסגר — כנראה שדה חובה חסר`);
       log('❌ החלון לא נסגר. בדוק מה חסר.', '#c62828');
