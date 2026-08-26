@@ -184,8 +184,8 @@ async function askFollowUp(session, replyTo, data, row) {
   const question = followUpQuestion(data.category, data.guests);
   if (!question) return;
 
-  awaiting = { row, category: data.category, guests: data.guests, at: Date.now() };
   await (replyTo ? session.reply(replyTo, question) : sendToGroup(session, question));
+  awaiting = { row, category: data.category, guests: data.guests, at: Date.now() };
 }
 
 /** טקסט שנכתב בקבוצה — נחשב תשובה רק אם יש שאלה פתוחה */

@@ -84,9 +84,15 @@ export function createSession({ groupId, onlyFromMe, onReceipt, onText }) {
     reply: (msg, text) => replyTo(session, msg, text),
   };
 
-  // הודעות שהבוט עצמו שלח — כדי שלא יגיב לעצמו
+  // הודעות שהבוט עצמו שלח — כדי שלא יגיב לעצמו.
+  //
+  //  מזהה ההודעה נרשם רק אחרי שהשליחה מסתיימת, אבל אירוע message_create
+  //  עליה מגיע לפני — ואז הבוט "שומע" את עצמו. לכן זוכרים גם את הטקסט,
+  //  מיד לפני השליחה, וזו ההגנה שבאמת תופסת.
   const sentIds = new Set();
+  const sentBodies = new Map();     // hash → זמן
   session._sentIds = sentIds;
+  session._sentBodies = sentBodies;
 
   // בשביל מצב הגילוי: לא מציפים את הלוג באותה קבוצה שוב ושוב
   const announced = new Set();
@@ -176,13 +182,45 @@ export function createSession({ groupId, onlyFromMe, onReceipt, onText }) {
 
       // טקסט בקבוצה — מעניין רק כתשובה לשאלת המשך שהבוט שאל
       const body = (msg.body || '').trim();
-      if (body && onText) await onText(session, msg, body);
+      if (!body || !onText) return;
+      if (isRecentlySent(sentBodies, body)) return;   // זו הודעה של הבוט עצמו
+      if (looksLikeBotMessage(body)) return;          // שכבת הגנה שנייה
+
+      await onText(session, msg, body);
     } catch (e) {
       console.error('שגיאה בטיפול בהודעה:', e.message || e);
     }
   });
 
   return session;
+}
+
+// ── זיהוי הד: מה שהבוט שלח זה עתה ────────────────────────────────────
+function hashText(s) {
+  let h = 0;
+  const t = String(s).trim();
+  for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) | 0;
+  return String(h);
+}
+
+function remember(map, text) {
+  map.set(hashText(text), Date.now());
+  if (map.size > 200) {
+    const cutoff = Date.now() - 5 * 60e3;
+    for (const [k, v] of map) if (v < cutoff) map.delete(k);
+  }
+}
+
+function isRecentlySent(map, text) {
+  const t = map.get(hashText(text));
+  return !!t && Date.now() - t < 5 * 60e3;
+}
+
+// שכבה שנייה: כל הודעה של הבוט פותחת באחד האימוג'ים האלה.
+// גם אם זיהוי ההד יחמיץ, זה יתפוס.
+const BOT_PREFIX = /^(✅|👥|🤝|⏳|♻️|📊|😕|🤷|⚙️|📦|🤔|🕒|📝)/u;
+function looksLikeBotMessage(text) {
+  return BOT_PREFIX.test(text.trim());
 }
 
 // ── תגובה בתוך הקבוצה, כשרשור על ההודעה המקורית ─────────────────────
@@ -193,6 +231,8 @@ export async function replyTo(session, msg, text) {
     return null;
   }
   try {
+    // רושמים לפני השליחה — אחרת האירוע מקדים אותנו
+    remember(session._sentBodies, text);
     const sent = await msg.reply(text);
     const id = msgIdOf(sent);
     if (id) {
@@ -330,6 +370,7 @@ export async function scanGroupMedia(client, groupId, limit = 15) {
 export async function sendToGroup(session, text) {
   if (!text || session.state !== 'ready' || !session.groupId) return null;
   try {
+    remember(session._sentBodies, text);
     const sent = await session.client.sendMessage(session.groupId, text);
     const id = msgIdOf(sent);
     if (id) {
