@@ -251,7 +251,7 @@
 
   const bar = document.createElement('div');
   bar.setAttribute('style', 'background:#263238;color:#fff;padding:10px 14px;display:flex;gap:8px;align-items:center;border-radius:7px 7px 0 0');
-  bar.innerHTML = '<b style="flex:1">מילוי טופס הוצאות <span style="opacity:.6;font-weight:400">v7</span></b>';
+  bar.innerHTML = '<b style="flex:1">מילוי טופס הוצאות <span style="opacity:.6;font-weight:400">v8</span></b>';
 
   const stopBtn = document.createElement('button');
   stopBtn.textContent = 'עצור';
@@ -357,8 +357,13 @@
     if (item.category === 'דלק') fill.push(['Alternative Car Number', ALT_CAR]);
     if (item.category === 'חניה') fill.push(['Customer Name', item.customer || TBD]);
     if (item.category === 'מסעדה') {
+      // אירוח של סועד אחד לא קיים — אם לא ידוע או 1, מדווחים 2
+      const guests = Math.max(2, Number(item.guests) || 0);
+      if (guests !== item.guests) {
+        log(`   סועדים: ${item.guests || 'לא ידוע'} → ${guests}`, '#78909c');
+      }
       fill.push(['Customer Name', item.customer || TBD]);
-      fill.push(['Number of guests', String(item.guests || 1)]);
+      fill.push(['Number of guests', String(guests)]);
       fill.push(['Guests Names', item.guestNames || TBD]);
     }
 
