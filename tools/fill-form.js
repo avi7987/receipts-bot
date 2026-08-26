@@ -90,19 +90,52 @@
     return true;
   }
 
-  function setSelect(el, label) {
-    if (!el) return false;
-    if (el.tagName === 'SELECT') {
-      const want = norm(label);
-      const opt = [...el.options].find((o) => norm(o.text) === want)
-        || [...el.options].find((o) => norm(o.text).includes(want));
-      if (!opt) return false;
-      el.focus();
-      el.value = opt.value;
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-      return true;
+  // ── בחירה מתפריט ──────────────────────────────────────────────────
+  //
+  //  "Expense Type" אינו select רגיל אלא רכיב עם תיבת חיפוש. הצבת
+  //  טקסט לתוכו לא בוחרת כלום — הוא נשאר "-- None --", ואז השדות
+  //  שתלויים בו לא נטענים. לכן שתי דרכים, לפי הסדר.
+  async function selectOption(labelText, wanted, root) {
+    const el = fieldByLabel(labelText, root);
+    if (!el) return 'השדה לא נמצא';
+    const want = norm(wanted);
+
+    // 1. אם יש select אמיתי מתחת לרכיב — גם אם הוא מוסתר
+    const group = el.closest('.form-group, .sc-form-field, .field-wrapper, div');
+    const sel = el.tagName === 'SELECT' ? el : group?.querySelector('select');
+    if (sel && sel.options?.length) {
+      const opt = [...sel.options].find((o) => norm(o.text) === want)
+        || [...sel.options].find((o) => norm(o.text).includes(want));
+      if (opt) {
+        sel.value = opt.value;
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        await sleep(600);
+        if (norm(sel.options[sel.selectedIndex]?.text).includes(want)) return null;
+      }
     }
-    return setValue(el, label);
+
+    // 2. ווידג'ט: פותחים, מקלידים בחיפוש, לוחצים על האפשרות
+    el.click();
+    group?.querySelector('.select2-arrow, .dropdown-toggle, [role=button]')?.click();
+    await sleep(500);
+
+    const search = [...document.querySelectorAll(
+      'input[type=search], .select2-search input, input.select2-input, .dropdown-menu input',
+    )].filter(visible).pop();
+    if (search) { setValue(search, wanted); await sleep(600); }
+
+    const option = await waitFor(() => [...document.querySelectorAll(
+      '[role=option], li, .select2-result-label, .dropdown-item, .select2-results__option',
+    )].filter(visible).find((o) => norm(o.textContent) === want), { timeout: 5000 });
+
+    if (!option) return `לא נמצאה האפשרות "${wanted}" ברשימה`;
+    option.click();
+    await sleep(800);
+
+    // מאמתים מול מה שמוצג עכשיו
+    const now = fieldByLabel(labelText, root);
+    const shown = norm(now?.value || now?.textContent || group?.textContent || '');
+    return shown.includes(want) ? null : `נבחר משהו אחר: "${shown.slice(0, 40)}"`;
   }
 
   // ── צירוף הקובץ ────────────────────────────────────────────────────
@@ -148,7 +181,7 @@
 
   const bar = document.createElement('div');
   bar.setAttribute('style', 'background:#263238;color:#fff;padding:10px 14px;display:flex;gap:8px;align-items:center;border-radius:7px 7px 0 0');
-  bar.innerHTML = '<b style="flex:1">מילוי טופס הוצאות <span style="opacity:.6;font-weight:400">v2</span></b>';
+  bar.innerHTML = '<b style="flex:1">מילוי טופס הוצאות <span style="opacity:.6;font-weight:400">v3</span></b>';
 
   const stopBtn = document.createElement('button');
   stopBtn.textContent = 'עצור';
@@ -219,14 +252,28 @@
     if (!modal) { problems.push(`${title}: החלון לא נפתח`); log('❌ החלון לא נפתח', '#c62828'); break; }
     await sleep(400);
 
-    // סוג ההוצאה קודם — הוא זה שקובע אילו שדות יופיעו
-    const typeEl = fieldByLabel('Expense Type', modal);
-    if (!setSelect(typeEl, item.expenseType)) {
-      problems.push(`${title}: לא הצלחתי לבחור "${item.expenseType}"`);
-      log(`❌ סוג ההוצאה לא נבחר`, '#c62828');
+    // סוג ההוצאה קודם — הוא זה שקובע אילו שדות בכלל יופיעו בחלון
+    const typeErr = await selectOption('Expense Type', item.expenseType, modal);
+    if (typeErr) {
+      problems.push(`${title}: סוג ההוצאה — ${typeErr}`);
+      log(`❌ סוג ההוצאה: ${typeErr}`, '#c62828');
       break;
     }
-    await sleep(700);        // השדות התלויים נטענים אחרי הבחירה
+    log(`   סוג: ${item.expenseType}`, '#78909c');
+
+    // ממתינים שהשדות התלויים ייטענו, ולא רק פרק זמן קבוע
+    const dependent = item.category === 'דלק' ? 'Alternative Car Number'
+      : item.category === 'חניה' ? 'Customer Name'
+        : item.category === 'מסעדה' ? 'Guests Names' : null;
+    if (dependent) {
+      const ready = await waitFor(() => fieldByLabel(dependent, modal), { timeout: 6000 });
+      if (!ready) {
+        problems.push(`${title}: "${dependent}" לא הופיע אחרי בחירת הסוג`);
+        log(`❌ "${dependent}" לא הופיע`, '#c62828');
+        break;
+      }
+    }
+    await sleep(300);
 
     // הטופס מקבל סכום שלם בלבד — מעגלים לשלם הקרוב
     const amount = String(Math.round(item.amount));
