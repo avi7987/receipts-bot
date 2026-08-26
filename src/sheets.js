@@ -320,6 +320,56 @@ async function ensureSummary(token) {
   console.log('📊 נוסף בלוק הסיכום.');
 }
 
+// ── המאזן הנוכחי ────────────────────────────────────────────────────
+//
+//  מחושב מהנתונים עצמם ולא נקרא מתאי הסיכום — כך שהוא לא תלוי
+//  במיקום שלהם ולא יישבר אם נזיז אותם שוב.
+/**
+ * @returns {Promise<{pending:number, count:number, done:number, currency:string}|null>}
+ */
+export async function pendingSummary() {
+  if (!sheetsConfigured()) return null;
+
+  try {
+    const token = await accessToken();
+    const totalCol = colLetter(COL_TOTAL + 1);
+    const doneCol = colLetter(COL_DONE + 1);
+    const range = encodeURIComponent(`${TAB}!${totalCol}2:${doneCol}`);
+
+    const res = await fetch(`${API}/${SHEET_ID}/values/${range}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!res.ok) return null;
+
+    const rows = (await res.json()).values || [];
+    const doneOffset = COL_DONE - COL_TOTAL;
+
+    let pending = 0;
+    let done = 0;
+    let count = 0;
+    for (const r of rows) {
+      const amount = numOf(r[0]);
+      if (amount === null) continue;
+      if (String(r[doneOffset]).toUpperCase() === 'TRUE') {
+        done += amount;
+      } else {
+        pending += amount;
+        count++;
+      }
+    }
+    return {
+      pending: Math.round(pending * 100) / 100,
+      done: Math.round(done * 100) / 100,
+      count,
+      currency: 'ILS',
+    };
+  } catch (e) {
+    console.error('חישוב המאזן נכשל:', e.message || e);
+    return null;
+  }
+}
+
 // ── חיפוש שורה קיימת ────────────────────────────────────────────────
 //
 //  הזיכרון המקומי של הבוט לא יודע שמחקת שורה מהגיליון. לכן לפני

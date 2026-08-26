@@ -58,7 +58,20 @@ export function receiptMessage(r, meta = {}) {
 
   lines.push('');
   lines.push(meta.row ? `📊 שורה ${meta.row} בגיליון` : '📊 נוסף לגיליון');
-  if (meta.sheetUrl) lines.push(meta.sheetUrl);
+
+  // המאזן אחרי הקבלה הזו — כדי לדעת איפה אתה עומד בלי לפתוח את הטבלה
+  const b = meta.balance;
+  if (b && b.count > 0) {
+    lines.push('');
+    lines.push('━━━━━━━━━━━━━━━');
+    lines.push(`⏳ *ממתין להזנה: ${money(b.pending, b.currency)}*`);
+    lines.push(`📄 ${b.count} ${b.count === 1 ? 'קבלה' : 'קבלות'} בהמתנה`);
+  }
+
+  if (meta.sheetUrl) {
+    lines.push('');
+    lines.push(meta.sheetUrl);
+  }
 
   return lines.join('\n');
 }

@@ -16,7 +16,7 @@ import {
   msgIdOf, updateOrReply, scanGroupMedia, sendToGroup,
 } from './wa.js';
 import { readReceipt, visionAvailable } from './vision.js';
-import { appendRow, rowFrom, sheetUrl, sheetsConfigured, stampChecked, findRow } from './sheets.js';
+import { appendRow, rowFrom, sheetUrl, sheetsConfigured, stampChecked, findRow, pendingSummary } from './sheets.js';
 import { saveReceipt, storageMode, saveForServing, resolveServed, servingConfigured } from './storage.js';
 
 import * as state from './state.js';
@@ -156,8 +156,12 @@ async function handleReceipt(session, job) {
     row,
     key: { doc_number: data.doc_number, date: data.date, total: data.total_with_tip },
   });
+  // המאזן אחרי הקבלה הזו — נכשל בשקט, לא מעכב את התשובה
+  const balance = await pendingSummary();
+
   await react(replyTo, '✅');
-  await updateOrReply(session, ack, replyTo, receiptMessage(data, { row, sheetUrl: sheetUrl(row) }));
+  await updateOrReply(session, ack, replyTo,
+    receiptMessage(data, { row, sheetUrl: sheetUrl(row), balance }));
 
   console.log(`🧾 ${data.vendor || '?'} · ${data.date || '?'} · ${data.total_with_tip ?? '?'} ${data.currency} → שורה ${row ?? '?'}`);
 }

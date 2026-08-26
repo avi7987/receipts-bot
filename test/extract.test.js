@@ -253,3 +253,31 @@ test('rowFrom כותב את שעת הקבלה', () => {
 test('receiptMessage מציג את השעה לצד התאריך', () => {
   assert.match(receiptMessage(normalize({ ...raw, time: '21:06' }), {}), /🕒 21:06/);
 });
+
+// ── המאזן בהודעה ────────────────────────────────────────────────────
+test('receiptMessage מציג את המאזן כשיש קבלות ממתינות', () => {
+  const msg = receiptMessage(normalize(raw), {
+    row: 9, balance: { pending: 1891.63, count: 9, done: 0, currency: 'ILS' },
+  });
+  assert.match(msg, /ממתין להזנה: 1,891\.63 ₪/);
+  assert.match(msg, /9 קבלות בהמתנה/);
+});
+
+test('לשון יחיד כשיש קבלה אחת בלבד', () => {
+  const msg = receiptMessage(normalize(raw), {
+    row: 2, balance: { pending: 60, count: 1, done: 0, currency: 'ILS' },
+  });
+  assert.match(msg, /1 קבלה בהמתנה/);
+});
+
+test('בלי מאזן — ההודעה נשארת נקייה', () => {
+  const msg = receiptMessage(normalize(raw), { row: 2 });
+  assert.doesNotMatch(msg, /ממתין להזנה/);
+});
+
+test('אפס ממתינות — לא מציגים מאזן ריק', () => {
+  const msg = receiptMessage(normalize(raw), {
+    row: 2, balance: { pending: 0, count: 0, done: 500, currency: 'ILS' },
+  });
+  assert.doesNotMatch(msg, /ממתין להזנה/);
+});
