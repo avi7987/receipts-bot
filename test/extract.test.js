@@ -2,9 +2,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { normalize, num, isoDate, dateLooksSane, extractJson, clockTime } from '../src/vision.js';
+import { normalize, num, isoDate, dateLooksSane, extractJson, clockTime, guestCount } from '../src/vision.js';
 import { rowFrom, HEADERS, colLetter, hebField, normDoc, numOf, sameDate } from '../src/sheets.js';
-import { money, heDate, receiptMessage, errorMessage } from '../src/format.js';
+import { money, heDate, receiptMessage, errorMessage, followUpQuestion } from '../src/format.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -115,8 +115,8 @@ test('normalize מכריח קטגוריה מהרשימה הסגורה', () => {
 });
 
 // ── בניית השורה לגיליון ─────────────────────────────────────────────
-test('הטבלה היא תשע עמודות בסדר הנכון', () => {
-  assert.deepEqual(HEADERS, ['תאריך', 'שעה', 'ספק', 'סכום כולל', 'מספר חשבונית', 'קטגוריה', 'הוזן במערכת', 'סומן בתאריך', 'קבלה']);
+test('הטבלה היא 11 עמודות בסדר הנכון', () => {
+  assert.deepEqual(HEADERS, ['תאריך', 'שעה', 'ספק', 'סכום כולל', 'מספר חשבונית', 'קטגוריה', 'סועדים', 'אורחים / לקוח', 'הוזן במערכת', 'סומן בתאריך', 'קבלה']);
 });
 
 test('rowFrom מייצר שורה באורך הכותרות', () => {
@@ -280,4 +280,45 @@ test('אפס ממתינות — לא מציגים מאזן ריק', () => {
     row: 2, balance: { pending: 0, count: 0, done: 500, currency: 'ILS' },
   });
   assert.doesNotMatch(msg, /ממתין להזנה/);
+});
+
+// ── מספר סועדים ─────────────────────────────────────────────────────
+test('guestCount מקבל רק מספר שלם וסביר', () => {
+  assert.equal(guestCount(3), 3);
+  assert.equal(guestCount('4'), 4);
+  assert.equal(guestCount('x3'), 3);
+  assert.equal(guestCount(0), null);      // אפס סועדים לא קיים
+  assert.equal(guestCount(-2), null);
+  assert.equal(guestCount(120), null);    // לא סביר לקבלת מסעדה
+  assert.equal(guestCount(null), null);
+  assert.equal(guestCount(''), null);
+});
+
+test('normalize מעביר את מספר הסועדים', () => {
+  assert.equal(normalize({ ...raw, guests: 3 }).guests, 3);
+  assert.equal(normalize(raw).guests, null);
+});
+
+// ── שאלת המשך ───────────────────────────────────────────────────────
+test('שאלת המשך רק לאוכל ולחניה', () => {
+  assert.match(followUpQuestion('מסעדה', null), /מי היו הסועדים/);
+  assert.match(followUpQuestion('חניה', null), /עם מי נפגשת/);
+  assert.equal(followUpQuestion('דלק', null), null);
+  assert.equal(followUpQuestion('אחר', null), null);
+});
+
+test('כשזוהה מספר סועדים — השאלה מזכירה אותו', () => {
+  assert.match(followUpQuestion('מסעדה', 3), /3 סועדים/);
+});
+
+test('rowFrom כותב את מספר הסועדים', () => {
+  const row = rowFrom(normalize({ ...raw, category: 'מסעדה', guests: 3 }));
+  assert.equal(row[HEADERS.indexOf('סועדים')], 3);
+  // "אורחים / לקוח" מתמלא רק אחרי שעונים בוואטסאפ, לא ברגע הקליטה
+  assert.equal(row[HEADERS.indexOf('אורחים / לקוח')], '');
+});
+
+test('אורחים נכתב כשהוא מגיע מהתשובה', () => {
+  const row = rowFrom({ ...normalize(raw), who: 'אני, רמי, דנה' });
+  assert.equal(row[HEADERS.indexOf('אורחים / לקוח')], 'אני, רמי, דנה');
 });

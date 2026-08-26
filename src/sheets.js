@@ -24,15 +24,17 @@ const API = 'https://sheets.googleapis.com/v4/spreadsheets';
 
 // כותרות הטבלה. הסדר כאן הוא הסדר בגיליון — אל תשנה בלי לעדכן את rowFrom.
 export const HEADERS = [
-  'תאריך',          // A
-  'שעה',            // B — השעה שמודפסת על הקבלה
-  'ספק',            // C
-  'סכום כולל',      // D — כולל טיפ, אם היה
-  'מספר חשבונית',   // E
-  'קטגוריה',        // F
-  'הוזן במערכת',    // G — תיבת סימון. ✓ צובע את השורה
-  'סומן בתאריך',    // H — נחתם אוטומטית כשמסמנים
-  'קבלה',           // I — קישור להורדת התמונה
+  'תאריך',            // A
+  'שעה',              // B — השעה שמודפסת על הקבלה
+  'ספק',              // C
+  'סכום כולל',        // D — כולל טיפ, אם היה
+  'מספר חשבונית',     // E
+  'קטגוריה',          // F
+  'סועדים',           // G — לאוכל: כמה אנשים כיסתה החשבונית
+  'אורחים / לקוח',    // H — לאוכל שמות הסועדים, לחניה עם מי נפגשת
+  'הוזן במערכת',      // I — תיבת סימון. ✓ צובע את השורה
+  'סומן בתאריך',      // J — נחתם אוטומטית כשמסמנים
+  'קבלה',             // K — קישור להורדת התמונה
 ];
 
 const COL_DATE = 0;
@@ -41,12 +43,14 @@ const COL_VENDOR = 2;
 const COL_TOTAL = 3;
 const COL_DOC = 4;
 const COL_CATEGORY = 5;
-const COL_DONE = 6;
-const COL_STAMP = 7;
-const COL_FILE = 8;
+const COL_GUESTS = 6;
+const COL_WHO = 7;
+const COL_DONE = 8;
+const COL_STAMP = 9;
+const COL_FILE = 10;
 
 // עמודות הסיכום, מימין לטבלה עם עמודה ריקה מפרידה (K ו-L)
-const SUMMARY_COL = 10;   // K
+const SUMMARY_COL = 12;   // M
 
 export function sheetsConfigured() {
   return !!(SHEET_ID && SA_EMAIL && SA_KEY);
@@ -75,6 +79,8 @@ export function rowFrom(r, fileUrl = null) {
   // מספר חשבונית הוא מזהה, לא מספר — הגרשה שומרת אפסים מובילים (0038412)
   row[COL_DOC] = r.doc_number ? `'${r.doc_number}` : '';
   row[COL_CATEGORY] = r.category || '';
+  row[COL_GUESTS] = r.guests ?? '';
+  row[COL_WHO] = r.who || '';
   row[COL_DONE] = false;   // תיבת סימון ריקה
   row[COL_STAMP] = '';     // מתמלא אוטומטית כשמסמנים
   // לחיצה על הקישור מורידה את הקובץ ישירות, בלי מסך תצוגה של Drive
@@ -318,6 +324,37 @@ async function ensureSummary(token) {
     },
   ]).catch(() => {});
   console.log('📊 נוסף בלוק הסיכום.');
+}
+
+// ── עדכון שדות בשורה קיימת ──────────────────────────────────────────
+//
+//  משמש כשאתה עונה בוואטסאפ על שאלת ההמשך ("מי היו הסועדים?").
+//  כותב רק את התאים שנשלחו, ולא נוגע בשאר השורה.
+/**
+ * @param {number} row  מספר השורה בגיליון
+ * @param {{who?:string, guests?:number}} fields
+ */
+export async function updateRowFields(row, fields) {
+  if (!sheetsConfigured() || !row) return false;
+
+  const data = [];
+  if (fields.who !== undefined && fields.who !== null) {
+    data.push({ range: `${TAB}!${colLetter(COL_WHO + 1)}${row}`, values: [[fields.who]] });
+  }
+  if (fields.guests !== undefined && fields.guests !== null) {
+    data.push({ range: `${TAB}!${colLetter(COL_GUESTS + 1)}${row}`, values: [[fields.guests]] });
+  }
+  if (!data.length) return false;
+
+  const token = await accessToken();
+  const res = await fetch(`${API}/${SHEET_ID}/values:batchUpdate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(30000),
+    body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data }),
+  });
+  if (!res.ok) throw new Error(`Sheets update ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return true;
 }
 
 // ── המאזן הנוכחי ────────────────────────────────────────────────────

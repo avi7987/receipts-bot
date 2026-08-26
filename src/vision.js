@@ -46,6 +46,7 @@ Extract the data exactly as printed. Return ONLY valid JSON, no markdown, in thi
   "currency": "ILS" | "USD" | "EUR" | "GBP" | other ISO code,
   "vendor": "business name as printed, or null",
   "category": one of: ${CATEGORIES.map((c) => `"${c}"`).join(', ')},
+  "guests": integer or null,
   "uncertain": ["names of fields above you could not read confidently"]
 }
 
@@ -60,9 +61,10 @@ RULES — follow every one of them:
 8. ₪ / ש"ח / שקל / NIS all mean currency "ILS". If no currency is shown anywhere and the text is Hebrew, assume "ILS" and do NOT mark it uncertain.
 9. "vendor" is the business that was PAID — usually the largest name at the top, near the ח.פ. It is not the customer, and not the credit card company. Keep it short: the business name only, without the legal suffix (בע"מ) and without branch details.
 10. "category": pick the single best fit from the closed list above, based on what was actually bought. A café or restaurant bill is "מסעדה"; a parking garage or Pango is "חניה"; a gas station is "דלק"; taxi, bus or train is "נסיעות ומוניות". If genuinely unclear, use "אחר" — do not invent a category outside the list.
-11. If the picture is not a receipt or invoice at all (a photo, a screenshot of a chat, a blurry unreadable page), set "is_receipt": false, explain shortly in Hebrew in "not_receipt_reason", and leave every other field null.
-12. If the picture IS a receipt but is too blurry/cropped to read a specific field, still return the fields you can read, and list the rest in "uncertain".
-13. Output nothing except the JSON object.`;
+11. "guests" — how many people the bill covered, for a restaurant or café receipt only. Take it from an explicit count (מס' סועדים / סועדים / דיינרים / covers / guests), or from a clear per-person line such as "עסקית צהריים x3" → 3. Do NOT sum unrelated item quantities: four coffees do not mean four people. If it is not stated and cannot be read off a per-person line, set null. For any non-food receipt, set null.
+12. If the picture is not a receipt or invoice at all (a photo, a screenshot of a chat, a blurry unreadable page), set "is_receipt": false, explain shortly in Hebrew in "not_receipt_reason", and leave every other field null.
+13. If the picture IS a receipt but is too blurry/cropped to read a specific field, still return the fields you can read, and list the rest in "uncertain".
+14. Output nothing except the JSON object.`;
 
 /**
  * קורא קבלה ומחזיר אובייקט מובנה, או זורק שגיאה.
@@ -171,6 +173,7 @@ export function normalize(j) {
     currency: (str(j.currency) || 'ILS').toUpperCase().slice(0, 3),
     vendor: str(j.vendor),
     category: CATEGORIES.includes(str(j.category)) ? str(j.category) : 'אחר',
+    guests: guestCount(j.guests),
     total_with_tip: null,
     uncertain: [],
   };
@@ -242,6 +245,21 @@ export function clockTime(v) {
   if (!Number.isInteger(h) || !Number.isInteger(min)) return null;
   if (h < 0 || h > 23 || min < 0 || min > 59) return null;
   return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+}
+
+/** מספר סועדים — שלם חיובי וסביר, אחרת null */
+export function guestCount(v) {
+  if (v === null || v === undefined || v === '') return null;
+
+  const s = String(v).trim();
+  if (s.startsWith('-')) return null;          // אחרת הניקוי היה הופך -2 ל-2
+
+  const digits = s.match(/\d+/);               // "x3" → 3
+  if (!digits) return null;
+
+  const n = Number(digits[0]);
+  if (!Number.isInteger(n) || n < 1 || n > 50) return null;   // מעל 50 זה לא סועדים
+  return n;
 }
 
 export function dateLooksSane(iso) {

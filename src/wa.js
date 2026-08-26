@@ -39,6 +39,7 @@ const READABLE_MIME = /^(image\/(jpeg|jpg|png|webp|heic|heif)|application\/pdf)$
  * @param {string} opts.groupId   מזהה הקבוצה להאזנה. ריק = מצב גילוי בלבד.
  * @param {boolean} opts.onlyFromMe  לעבד רק הודעות שאני שלחתי.
  * @param {(session, msg) => Promise<void>} opts.onReceipt
+ * @param {(session, msg, text) => Promise<void>} opts.onText  תשובה לשאלת המשך
  */
 /**
  * מנקה נעילות פרופיל שנשארו מהרצה קודמת.
@@ -61,7 +62,7 @@ function clearStaleLocks() {
   if (removed) console.log(`🧹 נוקו ${removed} נעילות פרופיל שנשארו מהרצה קודמת`);
 }
 
-export function createSession({ groupId, onlyFromMe, onReceipt }) {
+export function createSession({ groupId, onlyFromMe, onReceipt, onText }) {
   clearStaleLocks();
 
   const client = new Client({
@@ -167,9 +168,15 @@ export function createSession({ groupId, onlyFromMe, onReceipt }) {
       if (chatId !== session.groupId) return;         // קבוצה אחרת — מתעלמים לגמרי
       if (onlyFromMe && !msg.fromMe) return;          // תמונות של אחרים — לא נוגעים
       if (sentIds.has(msgIdOf(msg))) return;          // הודעה שהבוט עצמו שלח
-      if (!msg.hasMedia) return;                      // טקסט בקבוצה — לא מעניין
 
-      await onReceipt(session, msg);
+      if (msg.hasMedia) {
+        await onReceipt(session, msg);
+        return;
+      }
+
+      // טקסט בקבוצה — מעניין רק כתשובה לשאלת המשך שהבוט שאל
+      const body = (msg.body || '').trim();
+      if (body && onText) await onText(session, msg, body);
     } catch (e) {
       console.error('שגיאה בטיפול בהודעה:', e.message || e);
     }

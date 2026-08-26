@@ -16,11 +16,14 @@ import {
   msgIdOf, updateOrReply, scanGroupMedia, sendToGroup,
 } from './wa.js';
 import { readReceipt, visionAvailable } from './vision.js';
-import { appendRow, rowFrom, sheetUrl, sheetsConfigured, stampChecked, findRow, pendingSummary } from './sheets.js';
+import { appendRow, rowFrom, sheetUrl, sheetsConfigured, stampChecked, findRow, pendingSummary, updateRowFields } from './sheets.js';
 import { saveReceipt, storageMode, saveForServing, resolveServed, servingConfigured } from './storage.js';
 
 import * as state from './state.js';
-import { receiptMessage, notReceiptMessage, errorMessage, heDate, money } from './format.js';
+import {
+  receiptMessage, notReceiptMessage, errorMessage, heDate, money,
+  followUpQuestion, answerSavedMessage,
+} from './format.js';
 
 const STARTED_AT = Date.now();
 const PORT = process.env.PORT || 3100;
@@ -164,6 +167,55 @@ async function handleReceipt(session, job) {
     receiptMessage(data, { row, sheetUrl: sheetUrl(row), balance }));
 
   console.log(`🧾 ${data.vendor || '?'} · ${data.date || '?'} · ${data.total_with_tip ?? '?'} ${data.currency} → שורה ${row ?? '?'}`);
+
+  // שאלת המשך לקטגוריות שדורשות פרטים שאין על הקבלה
+  await askFollowUp(session, replyTo, data, row);
+}
+
+// ── שאלת המשך על קבלה ───────────────────────────────────────────────
+//
+//  קבלת אוכל דורשת שמות סועדים, קבלת חניה דורשת שם לקוח — ואת שניהם
+//  אי אפשר לקרוא מהתמונה. שואלים מיד, כשאתה עוד זוכר, ושומרים את
+//  התשובה לשורה. אם לא תענה — התא נשאר ריק והכלי ימלא TBD.
+let awaiting = null;   // { row, category, guests, at }
+const ANSWER_WINDOW_MIN = 90;
+
+async function askFollowUp(session, replyTo, data, row) {
+  const question = followUpQuestion(data.category, data.guests);
+  if (!question) return;
+
+  awaiting = { row, category: data.category, guests: data.guests, at: Date.now() };
+  await (replyTo ? session.reply(replyTo, question) : sendToGroup(session, question));
+}
+
+/** טקסט שנכתב בקבוצה — נחשב תשובה רק אם יש שאלה פתוחה */
+async function onText(session, msg, text) {
+  if (!awaiting) return;
+
+  const ageMin = (Date.now() - awaiting.at) / 60000;
+  if (ageMin > ANSWER_WINDOW_MIN) { awaiting = null; return; }
+
+  const answer = text.trim().slice(0, 300);
+  if (!answer) return;
+
+  const pending = awaiting;
+  awaiting = null;                       // צורכים את השאלה מיד, שלא תיתפס פעמיים
+
+  // באוכל, אם לא זוהה מספר סועדים בקבלה — סופרים מהשמות שכתבת
+  let guests = pending.guests;
+  if (pending.category === 'מסעדה' && !guests) {
+    const names = answer.split(/[,;،]|\sו-|\band\b/).map((s) => s.trim()).filter(Boolean);
+    if (names.length) guests = Math.min(names.length, 50);
+  }
+
+  try {
+    await updateRowFields(pending.row, { who: answer, guests });
+    await session.reply(msg, answerSavedMessage(pending.category, answer, guests, pending.row));
+    console.log(`📝 שורה ${pending.row}: ${pending.category} → "${answer}"${guests ? ` (${guests})` : ''}`);
+  } catch (e) {
+    console.error('שמירת התשובה נכשלה:', e.message || e);
+    await session.reply(msg, '😕 לא הצלחתי לשמור את התשובה. אפשר למלא ידנית בטבלה.');
+  }
 }
 
 // הכיתוב של תמונה מכיל לפעמים תמונה ממוזערת בקידוד base64 במקום טקסט.
@@ -279,7 +331,7 @@ async function boot() {
 
   for (const p of preflight()) console.warn(`⚠️  ${p}`);
 
-  const session = createSession({ groupId: GROUP_ID, onlyFromMe: ONLY_FROM_ME, onReceipt });
+  const session = createSession({ groupId: GROUP_ID, onlyFromMe: ONLY_FROM_ME, onReceipt, onText });
   global.__session = session;
 
   // הסורק מתחיל לרוץ ברגע שהחיבור מוכן

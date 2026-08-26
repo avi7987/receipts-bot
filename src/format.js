@@ -76,6 +76,30 @@ export function receiptMessage(r, meta = {}) {
   return lines.join('\n');
 }
 
+// ── שאלת המשך ───────────────────────────────────────────────────────
+//
+//  יש שדות ש-ServiceNow דורש ואי אפשר לקרוא מהקבלה: מי ישב איתך,
+//  את מי פגשת. הרגע הכי טוב לשאול הוא מיד אחרי הצילום, כשאתה עוד
+//  זוכר — ולא שבועיים אחר כך מול הטופס.
+export function followUpQuestion(category, guests) {
+  if (category === 'מסעדה') {
+    return guests
+      ? `👥 *מי היו הסועדים?*\n_זיהיתי ${guests} סועדים בקבלה. כתוב את השמות בהודעה הבאה._`
+      : '👥 *מי היו הסועדים?*\n_כתוב את השמות בהודעה הבאה, למשל: אני, רמי לוי, דנה כהן_';
+  }
+  if (category === 'חניה') {
+    return '🤝 *עם מי נפגשת?*\n_כתוב את שם הלקוח בהודעה הבאה._';
+  }
+  return null;
+}
+
+/** אישור אחרי שהתשובה נקלטה */
+export function answerSavedMessage(category, who, guests, row) {
+  const what = category === 'חניה' ? 'הלקוח' : 'הסועדים';
+  const extra = category === 'מסעדה' && guests ? `\n👥 ${guests} סועדים` : '';
+  return `✅ *נשמר*\n📝 ${what}: ${who}${extra}\n📊 עודכן בשורה ${row}`;
+}
+
 /** תמונה שהיא לא קבלה */
 export function notReceiptMessage(reason) {
   return `🤷 זו לא נראית לי כמו קבלה, אז לא הוספתי שורה.\n${reason ? `_${reason}_\n` : ''}אם זו כן קבלה — נסה לצלם אותה שוב, ישר ומואר.`;
