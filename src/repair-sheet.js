@@ -53,6 +53,26 @@ const meta = await (await fetch(`${API}/${SHEET_ID}?fields=sheets(properties(tit
 const gid = (meta.sheets || []).find((s) => s.properties?.title === TAB)?.properties?.sheetId;
 if (gid === undefined) { console.error(`❌ אין לשונית "${TAB}"`); process.exit(1); }
 
+// ── 0. הכותרות בגיליון חייבות להסכים עם הקוד ────────────────────────
+//
+//  שלב 3 מוחק ערכים בוליאניים מכל עמודה שאיננה עמודת הסימון. אם
+//  הקוד חושב שהסימון בעמודה אחת והגיליון מחזיק אותו באחרת — המחיקה
+//  הזו מוחקת בדיוק את מה שבאתי להגן עליו. זה קרה: כל הסימונים
+//  נמחקו בהרצה אחת. לכן בודקים לפני, ולא כותבים כותרות מעל מצב
+//  שלא מובן.
+const liveHead = ((await (await fetch(
+  `${API}/${SHEET_ID}/values/${R(`A1:${L(HEADERS.length + 2)}1`)}`, { headers: auth },
+)).json()).values || [[]])[0] || [];
+
+const liveDone = liveHead.findIndex((h) => String(h).trim() === 'הוזן במערכת');
+if (liveDone >= 0 && liveDone !== COL_DONE) {
+  console.error('❌ הכותרות בגיליון לא תואמות לקוד — לא נוגע בכלום.');
+  console.error(`   "הוזן במערכת" בקוד בעמודה ${L(COL_DONE)}, ובגיליון בעמודה ${L(liveDone)}.`);
+  console.error(`   בגיליון: ${liveHead.filter(Boolean).join(' · ')}`);
+  console.error('   יישר קודם את העמודות בגיליון, ורק אז הרץ שוב.');
+  process.exit(1);
+}
+
 // ── 1. כותרות ───────────────────────────────────────────────────────
 await fetch(`${API}/${SHEET_ID}/values/${R(`A1:${L(HEADERS.length - 1)}1`)}?valueInputOption=RAW`, {
   method: 'PUT', headers: jauth, body: JSON.stringify({ values: [HEADERS] }),

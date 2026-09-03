@@ -91,6 +91,38 @@ if (!process.env.RECEIPTS_GROUP_ID) {
   ok(`מוגדרת: ${process.env.RECEIPTS_GROUP_ID}`);
 }
 
+// ── 4. מספרי חשבונית כפולים ─────────────────────────────────────────
+//
+//  זיהוי הכפילויות נשען על מספר החשבונית: אם הוא קיים בשני הצדדים,
+//  הוא מכריע. שני מספרים זהים בגיליון פירושם שקבלה חדשה עם המספר
+//  הזה תיחסם כ"כבר קיימת" — או תיזקף לשורה הלא נכונה.
+console.log('\n4️⃣  מספרי חשבונית');
+try {
+  // כל השורות, גם המסומנות: הבדיקה של הבוט סורקת את הגיליון כולו,
+  // ולכן גם שורה שכבר הוזנה יכולה לחסום קבלה חדשה
+  const { allRows, sheetsConfigured } = await import('./sheets.js');
+  if (!sheetsConfigured()) {
+    console.log('   (מדולג — אין חיבור לגיליון)');
+  } else {
+    const rows = await allRows();
+    const seen = new Map();
+    for (const r of rows) {
+      if (!r.invoice) continue;
+      if (!seen.has(r.invoice)) seen.set(r.invoice, []);
+      seen.get(r.invoice).push(`שורה ${r.row} (${r.vendor}, ${r.amount})`);
+    }
+    const dups = [...seen.entries()].filter(([, v]) => v.length > 1);
+    if (!dups.length) ok(`אין כפילויות ב-${rows.length} השורות`);
+    else {
+      for (const [doc, where] of dups) {
+        bad(`המספר ${doc} מופיע ביותר משורה אחת`, where.join(' · ') + ' — השווה מול הקבלות עצמן');
+      }
+    }
+  }
+} catch (e) {
+  console.log(`   (הבדיקה נכשלה: ${String(e.message).slice(0, 80)})`);
+}
+
 // ── סיכום ───────────────────────────────────────────────────────────
 console.log('');
 if (failures === 0) {

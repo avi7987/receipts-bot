@@ -433,6 +433,31 @@ const EXPENSE_TYPE = {
 };
 
 /** @returns {Promise<Array<object>>} */
+/**
+ * כל השורות, מסומנות ולא מסומנות, בלי הקישורים. לבדיקות שצריכות
+ * לראות את הגיליון כמו שהבוט רואה אותו כשהוא מחפש כפילויות.
+ * @returns {Promise<Array<{row:number,vendor:string,invoice:string|null,amount:number|null,done:boolean}>>}
+ */
+export async function allRows() {
+  if (!sheetsConfigured()) return [];
+
+  const token = await accessToken();
+  const last = colLetter(HEADERS.length);
+  const res = await fetch(
+    `${API}/${SHEET_ID}/values/${encodeURIComponent(`${TAB}!A2:${last}`)}?valueRenderOption=UNFORMATTED_VALUE`,
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20000) },
+  );
+  if (!res.ok) throw new Error(`Sheets read ${res.status}`);
+
+  return ((await res.json()).values || []).map((r, i) => ({
+    row: i + 2,
+    vendor: String(r[COL_VENDOR] || ''),
+    invoice: normDoc(r[COL_DOC]),
+    amount: numOf(r[COL_TOTAL]),
+    done: r[COL_DONE] === true,
+  }));
+}
+
 export async function pendingRows() {
   if (!sheetsConfigured()) return [];
 
