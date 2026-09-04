@@ -20,7 +20,7 @@ import { readReceipt, visionAvailable } from './vision.js';
 import { appendRow, rowFrom, sheetUrl, sheetsConfigured, stampChecked, findRow, pendingSummary, updateRowFields, pendingRows, markDone } from './sheets.js';
 import { saveReceipt, storageMode, saveForServing, resolveServed, servingConfigured } from './storage.js';
 
-import * as state from './state.js';
+import * as ledger from './ledger.js';
 import {
   receiptMessage, notReceiptMessage, errorMessage, heDate, money,
   followUpSteps, stepQuestion, answerSavedMessage, parseYesNo, carNumber,
@@ -58,7 +58,19 @@ async function handleReceipt(session, job) {
   const { msgId, caption, kind, replyTo } = job;
   const say = (text) => (replyTo ? session.reply(replyTo, text) : sendToGroup(session, text));
 
-  if (state.seenMessage(msgId)) return;
+  //  התוצאה הסופית. כשאין הודעה מקורית להשיב לה — למשל קבלה שנמצאה
+  //  בסריקה או בניסיון חוזר — שולחים לקבוצה. בלי זה `reply` על null
+  //  נכשל, השגיאה נבלעת, והמשתמש לא מקבל דבר: בדיוק הכשל השקט
+  //  שבאנו לחסל.
+  const ackRef = { msg: null };
+  const finish = (text) => ((ackRef.msg || replyTo)
+    ? updateOrReply(session, ackRef.msg, replyTo, text)
+    : sendToGroup(session, text));
+
+  // רשומה שנסגרה — טופלה עד הסוף, אין מה לעשות איתה שוב.
+  // רשומה פתוחה (נכשלה או ממתינה) כן נכנסת שוב, וזה כל העניין.
+  if (ledger.settled(msgId)) return;
+  ledger.noticed(msgId, { chat: job.chat || session.groupId || null, at: job.at || null });
 
   // ── הורדה ──
   let media;
@@ -66,26 +78,33 @@ async function handleReceipt(session, job) {
     media = await job.download();
   } catch (e) {
     if (e.message === 'too-large') {
-      state.rememberMessage(msgId);
+      // קובץ גדול מדי לא יקטן מעצמו — אין טעם לנסות שוב
+      ledger.failed(msgId, 'הקובץ גדול מדי', { retryable: false });
       await say(errorMessage('too-large'));
       return;
     }
+    // הורדה יכולה להיכשל זמנית (רשת, מדיה שעוד לא סונכרנה) — שווה ניסיון נוסף
+    ledger.failed(msgId, `הורדה נכשלה: ${short(e.message)}`);
     throw e;
   }
   if (!media) {
     // סטיקר, וידאו, קובץ וורד וכו' — פשוט לא בשבילנו
-    state.rememberMessage(msgId);
+    ledger.mark(msgId, ledger.NOT_RECEIPT, { reason: 'לא תמונה ולא PDF' });
     if (kind === 'document') await say(errorMessage('unsupported'));
     return;
   }
 
-  const hash = state.hashOf(media.base64);
+  const hash = ledger.hashOf(media.base64);
 
   await react(replyTo, '⏳');
 
   // אישור מיידי — כדי שתדע שהקבלה נתפסה ולא נעלמה.
   // ההודעה הזו תתעדכן בהמשך לתוצאה הסופית, כך שלא נשארות שתי הודעות.
-  const ack = await say('⏳ *קיבלתי קבלה* — קורא אותה...');
+  //
+  // בניסיון חוזר לא מודיעים שוב "קיבלתי" — ההודעה הזו כבר נשלחה
+  // בפעם הראשונה, וארבעה ניסיונות היו מייצרים ארבע הודעות זהות.
+  // רק התוצאה הסופית תישלח.
+  ackRef.msg = job.quiet ? null : await say('⏳ *קיבלתי קבלה* — קורא אותה...');
 
   // ── קריאה ב-AI ──
   let data;
@@ -94,17 +113,20 @@ async function handleReceipt(session, job) {
   } catch (e) {
     failed++;
     await react(replyTo, '❌');
-    state.rememberMessage(msgId);
+    //  כאן היה הבאג המסוכן ביותר: כישלון קריאה סימן את ההודעה
+    //  כמטופלת לתמיד. מכסת AI שנגמרה, נפילת רשת או תקלה רגעית —
+    //  והקבלה נעלמה בלי שאיש ידע. עכשיו היא נשארת פתוחה ותנוסה שוב.
+    ledger.failed(msgId, short(e.message) || 'קריאת הקבלה נכשלה', { extra: { hash } });
     const why = e.message === 'missing-gemini-key' ? 'missing-gemini-key' : 'read-failed';
     console.error('קריאת הקבלה נכשלה:', e.message || e);
-    await updateOrReply(session, ack, replyTo, errorMessage(why, why === 'read-failed' ? short(e.message) : null));
+    await finish(errorMessage(why, why === 'read-failed' ? short(e.message) : null));
     return;
   }
 
   if (!data.is_receipt) {
     await react(replyTo, '🤷');
-    state.rememberMessage(msgId);
-    await updateOrReply(session, ack, replyTo, notReceiptMessage(data.not_receipt_reason));
+    ledger.mark(msgId, ledger.NOT_RECEIPT, { hash, reason: data.not_receipt_reason || 'לא נראית כמו קבלה' });
+    await finish(notReceiptMessage(data.not_receipt_reason));
     return;
   }
 
@@ -124,9 +146,9 @@ async function handleReceipt(session, job) {
     console.error('בדיקת כפילות נכשלה, ממשיך:', e.message || e);
   }
   if (existing) {
-    state.remember(msgId, hash, { label: labelOf(data), row: existing, key });
+    ledger.mark(msgId, ledger.DUPLICATE, { hash, row: existing, label: labelOf(data) });
     await react(replyTo, '♻️');
-    await updateOrReply(session, ack, replyTo, errorMessage('duplicate', labelOf(data), existing));
+    await finish(errorMessage('duplicate', labelOf(data), existing));
     console.log(`♻️  ${data.vendor || '?'} כבר קיימת בשורה ${existing}`);
     return;
   }
@@ -148,24 +170,24 @@ async function handleReceipt(session, job) {
     await react(replyTo, '❌');
     console.error('כתיבה לגיליון נכשלה:', e.message || e);
     const why = e.message === 'sheets-not-configured' ? 'sheets-not-configured' : 'sheet-failed';
-    await updateOrReply(session, ack, replyTo, errorMessage(why, why === 'sheet-failed' ? short(e.message) : null));
-    return;   // לא רושמים בזיכרון — כך שליחה חוזרת אחרי תיקון תעבוד
+    // נשארת פתוחה: התמונה כבר נשמרה, וברגע שהגיליון יחזור היא תיכנס לבד
+    ledger.failed(msgId, short(e.message) || 'כתיבה לגיליון נכשלה', { extra: { hash, label: labelOf(data) } });
+    await finish(errorMessage(why, why === 'sheet-failed' ? short(e.message) : null));
+    return;
   }
 
   // ── סיום ──
   processed++;
-  // שומרים גם את המזהים, כדי שאפשר יהיה לאמת מול הגיליון בפעם הבאה
-  state.remember(msgId, hash, {
-    label: labelOf(data),
+  ledger.mark(msgId, ledger.DONE, {
+    hash,
     row,
-    key: { doc_number: data.doc_number, date: data.date, total: data.total_with_tip },
+    label: labelOf(data),
   });
   // המאזן אחרי הקבלה הזו — נכשל בשקט, לא מעכב את התשובה
   const balance = await pendingSummary();
 
   await react(replyTo, '✅');
-  await updateOrReply(session, ack, replyTo,
-    receiptMessage(data, { row, sheetUrl: sheetUrl(row), balance }));
+  await finish(receiptMessage(data, { row, sheetUrl: sheetUrl(row), balance }));
 
   console.log(`🧾 ${data.vendor || '?'} · ${data.date || '?'} · ${data.total_with_tip ?? '?'} ${data.currency} → שורה ${row ?? '?'}`);
 
@@ -329,7 +351,7 @@ async function pollGroup(session) {
   if (!items.length) return;
 
   const fresh = items.filter((x) => {
-    if (state.seenMessage(x.id)) return false;
+    if (ledger.settled(x.id)) return false;
     const ageHours = x.t ? (Date.now() - x.t * 1000) / 3600e3 : 0;
     return ageHours <= CATCHUP_HOURS;
   });
@@ -353,6 +375,67 @@ async function pollGroup(session) {
   }
 }
 
+// ── ניסיון חוזר על מה שנכשל ─────────────────────────────────────────
+//
+//  קבלה שנפלה על מכסת AI שנגמרה או על נפילת רשת אינה אבודה — היא
+//  שוכבת ביומן עם זמן לניסיון הבא. כאן היא נאספת ומטופלת שוב.
+async function retryOpen(session) {
+  if (session.state !== 'ready') return;
+
+  const due = ledger.dueForRetry().filter((e) => e.status === ledger.FAILED);
+  if (!due.length) return;
+
+  console.log(`♻️  ${due.length} קבלות ממתינות לניסיון חוזר`);
+  for (const entry of due) {
+    try {
+      await handleReceipt(session, {
+        msgId: entry.id,
+        caption: null,
+        kind: 'image',
+        replyTo: null,
+        chat: entry.chat,
+        at: entry.at,
+        quiet: true,
+        download: () => downloadReceiptById(session.client, entry.id),
+      });
+    } catch (e) {
+      console.error(`ניסיון חוזר נכשל (${entry.id}):`, e.message || e);
+    }
+  }
+}
+
+// ── דיווח על מה שתקוע ───────────────────────────────────────────────
+//
+//  זו כל המטרה: קבלה שלא נקלטה לא תישאר בשקט. מדווחים רק כשמשהו
+//  משתנה — אחרת הבוט היה חוזר על אותה תלונה כל דקה.
+let lastOpenReport = '';
+
+async function reportOpen(session) {
+  if (session.state !== 'ready') return;
+
+  const openOnes = ledger.open();
+  const fingerprint = openOnes.map((e) => `${e.id}:${e.status}:${e.attempts || 0}`).sort().join('|');
+  if (fingerprint === lastOpenReport) return;
+  lastOpenReport = fingerprint;
+
+  if (!openOnes.length) return;
+
+  //  מדווחים רק על מה שכבר ניסינו כמה פעמים. קבלה שנכשלה לפני דקה
+  //  ותנוסה שוב בעוד דקה לא צריכה להקפיץ הודעה.
+  const stuck = openOnes.filter((e) => (e.attempts || 0) >= 3);
+  if (!stuck.length) return;
+
+  const lines = ['⚠️ *קבלות שלא נקלטו*', ''];
+  for (const e of stuck.slice(0, 10)) {
+    const when = e.at ? heDate(new Date(e.at * 1000).toISOString().slice(0, 10)) : '';
+    lines.push(`• ${e.label || 'קבלה'}${when ? ` (${when})` : ''} — ${e.reason || 'סיבה לא ידועה'}`);
+  }
+  lines.push('');
+  lines.push('_אני ממשיך לנסות. אם זה לא נפתר — שלח אותן שוב._');
+
+  try { await sendToGroup(session, lines.join('\n')); } catch { /* לא קריטי */ }
+}
+
 // חותמת זמן על שורות שסימנת בגיליון
 async function pollStamps() {
   try {
@@ -366,8 +449,10 @@ async function pollStamps() {
 function startPolling(session) {
   const every = Math.max(20, Number(process.env.POLL_SECONDS || 60)) * 1000;
   console.log(`🔍 סורק את הקבוצה ואת הגיליון כל ${every / 1000} שניות`);
-  setInterval(() => {
-    pollGroup(session).catch((e) => console.error('סריקה:', e.message || e));
+  setInterval(async () => {
+    await pollGroup(session).catch((e) => console.error('סריקה:', e.message || e));
+    await retryOpen(session).catch((e) => console.error('ניסיון חוזר:', e.message || e));
+    await reportOpen(session).catch((e) => console.error('דיווח:', e.message || e));
     pollStamps();
   }, every);
 }
