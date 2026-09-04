@@ -17,8 +17,15 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 
-const FILE = path.resolve(process.env.LEDGER_PATH || './.state/ledger.json');
 const OLD_FILE = path.resolve(process.env.STATE_PATH || './.state/processed.json');
+
+//  היומן יושב ליד הקובץ הישן, ולא בנתיב משלו. בשרת התיקייה הזו
+//  ממופה החוצה מהקונטיינר; משתנה סביבה חדש היה נשאר לא מוגדר שם,
+//  היומן היה נכתב לתוך הקונטיינר, וכל פריסה הייתה מוחקת אותו —
+//  והבוט היה סורק את ההיסטוריה מחדש ושורף את מכסת ה-AI היומית.
+const FILE = process.env.LEDGER_PATH
+  ? path.resolve(process.env.LEDGER_PATH)
+  : path.join(path.dirname(OLD_FILE), 'ledger.json');
 const MAX = 2000;
 
 // ── מצבים ───────────────────────────────────────────────────────────
