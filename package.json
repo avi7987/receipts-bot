@@ -16,7 +16,8 @@
     "design": "node src/design-sheet.js",
     "add-guests": "node src/add-guest-columns.js",
     "repair": "node src/repair-sheet.js",
-    "bookmarklet": "node tools/build-bookmarklet.js"
+    "bookmarklet": "node tools/build-bookmarklet.js",
+    "drive": "node src/ingest-drive.js"
   },
   "engines": {
     "node": ">=22"
