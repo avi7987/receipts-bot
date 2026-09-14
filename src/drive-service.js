@@ -29,8 +29,12 @@ import { register, OnboardError, makeLimiter } from './onboard.js';
 //  היה יכול להירשם — וכל נרשם צורך ממכסת ה-API של חשבון השירות,
 //  שמשרת גם את בוט הוואטסאפ. בלי JOIN_CODE מוגדר, ההרשמה כבויה.
 const JOIN_CODE = (process.env.JOIN_CODE || '').trim();
-const JOIN_HTML = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'join.html'), 'utf8')
+const page = (file) => fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), file), 'utf8')
   .replace('__SA_EMAIL__', process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || '');
+const JOIN_HTML = page('join.html');
+//  המדריך פתוח בלי קוד: אין בו שום דבר שמאפשר להירשם — רק הסבר.
+//  כך אפשר לשלוח אותו לכל מי שמתעניין, בלי לחשוף את קישור ההרשמה.
+const GUIDE_HTML = page('guide.html');
 const allowJoin = makeLimiter();
 
 const PAGE_HEADERS = {
@@ -129,6 +133,12 @@ const server = http.createServer(async (req, res) => {
     }));
     res.end();
     return;
+  }
+
+  // ── המדריך ──
+  if (url.pathname === '/guide' && (req.method === 'GET' || req.method === 'HEAD')) {
+    res.writeHead(200, PAGE_HEADERS);
+    return res.end(req.method === 'HEAD' ? undefined : GUIDE_HTML);
   }
 
   // ── הרשמה עצמית ──

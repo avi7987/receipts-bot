@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>קבלות ישר לטופס</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Hebrew:wght@400;500;600;700&family=Secular+One&display=swap">
+<style>
+  :root {
+    --ground: #F3F5F7;
+    --paper: #FFFFFF;
+    --ink: #263238;
+    --muted: #5C6972;
+    --rule: #DAE0E6;
+    --link: #1B63C1;
+    --missing: #FFE0B3;
+    --missing-ink: #7A4A06;
+    --na: #E6E6E6;
+    --na-ink: #8E8E8E;
+    --done: #D9F0D3;
+    --done-ink: #2E6B34;
+    --warn: #FBEAEA;
+    --warn-ink: #8F2A2A;
+    --band: #263238;
+    --band-ink: #FFFFFF;
+    --focus: #1B63C1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #111619;
+      --paper: #182025;
+      --ink: #E3E9ED;
+      --muted: #98A5AE;
+      --rule: #2A343B;
+      --link: #7DB2F5;
+      --missing: #56400F;
+      --missing-ink: #FFD48A;
+      --na: #2B3034;
+      --na-ink: #8C959B;
+      --done: #1E3A24;
+      --done-ink: #9FD9A7;
+      --warn: #3D2020;
+      --warn-ink: #F2B1B1;
+      --band: #0B0F12;
+      --band-ink: #E3E9ED;
+      --focus: #7DB2F5;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #111619;
+    --paper: #182025;
+    --ink: #E3E9ED;
+    --muted: #98A5AE;
+    --rule: #2A343B;
+    --link: #7DB2F5;
+    --missing: #56400F;
+    --missing-ink: #FFD48A;
+    --na: #2B3034;
+    --na-ink: #8C959B;
+    --done: #1E3A24;
+    --done-ink: #9FD9A7;
+    --warn: #3D2020;
+    --warn-ink: #F2B1B1;
+    --band: #0B0F12;
+    --band-ink: #E3E9ED;
+    --focus: #7DB2F5;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "IBM Plex Sans Hebrew", "Arial Hebrew", "Segoe UI", Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.7;
+  }
+  .page {
+    direction: rtl;
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 40px 22px 72px;
+    display: grid;
+    gap: 44px;
+  }
+  a { color: var(--link); text-underline-offset: 3px; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+  h1, h2, h3 { text-wrap: balance; margin: 0; line-height: 1.25; }
+  p { margin: 0; max-width: 64ch; }
+  code, .mono { font-family: "IBM Plex Mono", Consolas, monospace; font-size: 0.9em; direction: ltr; unicode-bidi: isolate; }
+
+  /* ── פתיחה ── */
+  header { display: grid; gap: 14px; }
+  .eyebrow {
+    font-size: 13px; letter-spacing: 0.04em; color: var(--muted); font-weight: 500;
+  }
+  h1 {
+    font-family: "Secular One", "IBM Plex Sans Hebrew", Arial, sans-serif;
+    font-weight: 400;
+    font-size: clamp(34px, 6vw, 46px);
+  }
+  .lede { font-size: 18px; color: var(--muted); }
+
+  .flow {
+    display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px;
+    margin-top: 6px; padding: 0; list-style: none;
+  }
+  .flow li {
+    flex: 1 1 130px;
+    background: var(--paper); border: 1px solid var(--rule); border-radius: 6px;
+    padding: 10px 12px; display: grid; gap: 2px; position: relative;
+  }
+  .flow b { font-weight: 600; font-size: 15px; }
+  .flow span { font-size: 13px; color: var(--muted); line-height: 1.45; }
+  .flow li.you { border-color: var(--missing-ink); }
+  .flow li.you b::after {
+    content: "את/ה"; margin-inline-start: 6px; font-size: 11px; font-weight: 600;
+    background: var(--missing); color: var(--missing-ink); padding: 1px 6px; border-radius: 3px;
+    vertical-align: 2px;
+  }
+
+  /* ── מקטעים ── */
+  section { display: grid; gap: 16px; }
+  .sec-head { display: grid; gap: 4px; padding-bottom: 10px; border-bottom: 1px solid var(--rule); }
+  h2 { font-size: 23px; font-weight: 700; }
+  .sec-head p { color: var(--muted); font-size: 15px; }
+
+  ol.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; counter-reset: s; }
+  ol.steps > li {
+    counter-increment: s;
+    display: grid; grid-template-columns: 34px 1fr; gap: 14px; align-items: start;
+  }
+  ol.steps > li::before {
+    content: counter(s);
+    width: 34px; height: 34px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: var(--band); color: var(--band-ink);
+    font-weight: 600; font-size: 15px; font-variant-numeric: tabular-nums;
+  }
+  .step { display: grid; gap: 6px; padding-top: 4px; }
+  .step h3 { font-size: 17px; font-weight: 600; }
+  .step p, .step li { color: var(--ink); }
+  .step .note { font-size: 14px; color: var(--muted); }
+  .step ul { margin: 0; padding-inline-start: 20px; display: grid; gap: 2px; }
+
+  .copy {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    background: var(--paper); border: 1px solid var(--rule); border-radius: 6px;
+    padding: 8px 10px;
+  }
+  .copy .mono { flex: 1 1 260px; overflow-wrap: anywhere; font-size: 14px; text-align: left; }
+  .copy button {
+    font: inherit; font-size: 14px; font-weight: 600;
+    background: var(--band); color: var(--band-ink); border: 0; border-radius: 5px;
+    padding: 5px 14px; cursor: pointer;
+  }
+  .copy button[data-done] { background: var(--done); color: var(--done-ink); }
+
+  .send {
+    background: var(--paper); border: 1px solid var(--rule); border-radius: 8px;
+    padding: 16px 18px; display: grid; gap: 8px;
+  }
+  .send h3 { font-size: 16px; font-weight: 600; }
+  .send ul { margin: 0; padding-inline-start: 20px; display: grid; gap: 4px; }
+
+  /* ── טבלת השדות — באותם צבעים כמו בגיליון ── */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 8px; background: var(--paper); }
+  table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 15px; }
+  th, td { padding: 9px 12px; text-align: right; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  thead th { background: var(--band); color: var(--band-ink); font-weight: 600; font-size: 14px; }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.type { font-weight: 600; white-space: nowrap; }
+  td.type small { display: block; font-weight: 400; color: var(--muted); font-size: 12.5px; }
+  .req { background: var(--missing); color: var(--missing-ink); font-weight: 500; }
+  .na { background: var(--na); color: var(--na-ink); }
+  .opt { color: var(--ink); }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 14px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 16px; height: 16px; border-radius: 3px; border: 1px solid var(--rule); display: inline-block; }
+
+  /* ── מצבים בלשונית קליטה ── */
+  dl.states { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 0; border: 1px solid var(--rule); border-radius: 8px; background: var(--paper); overflow: hidden; }
+  dl.states dt, dl.states dd { margin: 0; padding: 9px 14px; border-bottom: 1px solid var(--rule); }
+  dl.states dt { font-weight: 600; white-space: nowrap; }
+  dl.states dd { color: var(--muted); font-size: 15px; }
+  dl.states dt:last-of-type, dl.states dd:last-of-type { border-bottom: 0; }
+
+  /* ── תקלות ── */
+  .faq { display: grid; gap: 0; border-top: 1px solid var(--rule); }
+  .faq details { border-bottom: 1px solid var(--rule); padding: 12px 2px; }
+  .faq summary { cursor: pointer; font-weight: 600; list-style-position: inside; }
+  .faq details p { margin-top: 8px; color: var(--ink); }
+
+  .caution {
+    background: var(--warn); color: var(--warn-ink);
+    border-radius: 6px; padding: 10px 14px; font-size: 15px;
+  }
+  .privacy p + p { margin-top: 8px; }
+  footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--rule); padding-top: 14px; }
+
+  @media (max-width: 520px) {
+    .page { padding: 28px 16px 56px; gap: 36px; }
+    dl.states { grid-template-columns: 1fr; }
+    dl.states dt { border-bottom: 0; padding-bottom: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="page" lang="he" dir="rtl">
+
+  <header>
+    <div class="eyebrow">החזרי הוצאות · ServiceNow</div>
+    <h1>קבלות ישר לטופס</h1>
+    <p class="lede">מצלמים קבלה ומעלים אותה לתיקייה בדרייב. היא נקראת לבד, נכנסת לגיליון שלך, ובסוף החודש לחיצה אחת ממלאת את טופס ההוצאות — כולל צילום הקבלה.</p>
+    <ol class="flow" aria-label="המסלול של קבלה">
+      <li class="you"><b>צילום</b><span>מעלים לתיקייה בדרייב</span></li>
+      <li><b>קריאה</b><span>תוך כ-3 דקות</span></li>
+      <li class="you"><b>גיליון</b><span>משלימים את התאים הכתומים</span></li>
+      <li class="you"><b>טופס</b><span>לחיצה על הסימנייה</span></li>
+    </ol>
+  </header>
+
+  <section aria-labelledby="setup">
+    <div class="sec-head">
+      <h2 id="setup">הקמה — פעם אחת</h2>
+      <p>בערך חמש דקות, מהמחשב. לא מתקינים שום דבר.</p>
+    </div>
+
+    <ol class="steps">
+      <li>
+        <div class="step">
+          <h3>צור/י תיקייה בדרייב</h3>
+          <p>ב-Google Drive שלך: <b>חדש ← תיקייה</b>. שם לדוגמה: <b>קבלות</b>.</p>
+        </div>
+      </li>
+      <li>
+        <div class="step">
+          <h3>צור/י בתוכה גיליון ריק</h3>
+          <p>נכנסים לתיקייה, ושם: <b>חדש ← Google Sheets</b>. לא צריך לכתוב בו כלום — הטבלה נבנית לבד.</p>
+          <p class="note">חשוב שהגיליון ייווצר <b>בתוך</b> התיקייה, ולא במקום אחר ואז יועבר אליה.</p>
+        </div>
+      </li>
+      <li>
+        <div class="step">
+          <h3>שתף/י את התיקייה עם השירות</h3>
+          <p>קליק ימני על התיקייה ← <b>שיתוף</b>. מדביקים את הכתובת הזו, בוחרים הרשאת <b>עורך</b>, ושולחים:</p>
+          <div class="copy">
+            <span class="mono" id="sa">__SA_EMAIL__</span>
+            <button type="button" data-copy="sa">העתקה</button>
+          </div>
+          <p class="note">זו כתובת של חשבון מערכת, לא של אדם. אם גוגל מציעה לשלוח לו הודעה — אפשר לבטל. הגיליון שבתוך התיקייה מקבל את השיתוף אוטומטית.</p>
+        </div>
+      </li>
+      <li>
+        <div class="step">
+          <h3>צור/י מפתח AI משלך</h3>
+          <p>נכנסים ל-<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>, לוחצים <b>Create API key</b>, ומעתיקים.</p>
+          <p class="note">חייבים להיות מחובר/ת <b>לחשבון הגוגל שלך</b>. המפתח החינמי קורא עד 20 קבלות ביום — ומכסה של מישהו אחר לא עוזרת לך ולא נפגעת ממך.</p>
+        </div>
+      </li>
+      <li>
+        <div class="step">
+          <h3>נרשמים ומקבלים את הסימנייה</h3>
+          <p>נכנסים ל<b>קישור ההרשמה</b> שפורסם בקבוצת הצוות. מדביקים שם, קישור לתיקייה (מסרגל הכתובת כשהתיקייה פתוחה) ואת מפתח ה-AI, ולוחצים <b>הרשמה</b>.</p>
+          <p>תוך חצי דקה מופיע כפתור <b>🧾 מילוי הוצאות</b> — גוררים אותו לסרגל המועדפים. זו הסימנייה האישית שלך.</p>
+          <p class="note">אם משהו בהכנה חסר — למשל התיקייה לא שותפה — הדף אומר בדיוק מה, ואפשר לתקן ולנסות שוב. לא צריך לשלוח לאף אחד כלום.</p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="routine">
+    <div class="sec-head">
+      <h2 id="routine">בשגרה</h2>
+      <p>מהטלפון או מהמחשב, מתי שנוח.</p>
+    </div>
+    <ol class="steps">
+      <li>
+        <div class="step">
+          <h3>מעלים את הקבלה לתיקייה</h3>
+          <p>באפליקציית Drive: נכנסים לתיקייה ← <b>+</b> ← <b>העלאה</b> או <b>סריקה</b>. צילום (JPG / PNG) או PDF, עד 8MB.</p>
+          <p class="note">טיפ: צילום ישר ומואר נקרא הכי טוב. שלא יהיה חתוך בקצוות.</p>
+        </div>
+      </li>
+      <li>
+        <div class="step">
+          <h3>אחרי כמה דקות — שורה בגיליון</h3>
+          <p>בלשונית <b>הוצאות</b> מופיעים תאריך, שעה, ספק, סכום כולל מע״מ, מספר חשבונית וסוג. בלשונית <b>קליטה</b> רואים מה קרה לכל קובץ שהעלית.</p>
+        </div>
+      </li>
+      <li>
+        <div class="step">
+          <h3>משלימים את התאים הכתומים</h3>
+          <p>אלה פרטים שאי אפשר לקרוא מהקבלה, והטופס דורש אותם. תאים אפורים לא רלוונטיים לסוג הקבלה — אי אפשר גם לכתוב בהם.</p>
+        </div>
+      </li>
+      <li>
+        <div class="step">
+          <h3>בטופס ההוצאות: לחיצה אחת</h3>
+          <p>פותחים את הטופס, מסמנים את תיבת ההצהרה כרגיל, ולוחצים על הסימנייה. היא מוסיפה שורה לכל קבלה שממתינה, ממלאת את השדות ומצרפת את הצילום.</p>
+          <p>עוברים על השורות, ולוחצים <b>Save as Draft</b>. ההגשה עצמה — בידיים שלך.</p>
+          <p class="caution">השורות מסומנות ✓ בגיליון ברגע שהן נוספות לטופס. לא לסגור את הטופס בלי לשמור — אחרת הן לא יוצעו שוב.</p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="fields">
+    <div class="sec-head">
+      <h2 id="fields">מה צריך להשלים, לפי סוג הקבלה</h2>
+      <p>אותם צבעים כמו בגיליון.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">סוג בגיליון</th>
+            <th scope="col">לקוח</th>
+            <th scope="col">סועדים</th>
+            <th scope="col">אורחים</th>
+            <th scope="col">רכב חלופי</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="type">מסעדה<small>בטופס: אירוח בארץ</small></td>
+            <td class="req">חובה</td>
+            <td class="req">חובה<br><small>לפחות 2</small></td>
+            <td class="req">חובה — שמות</td>
+            <td class="na">—</td>
+          </tr>
+          <tr>
+            <td class="type">חניה<small>בטופס: חניה</small></td>
+            <td class="req">חובה</td>
+            <td class="na">—</td>
+            <td class="na">—</td>
+            <td class="opt">רק אם זה רכב חלופי</td>
+          </tr>
+          <tr>
+            <td class="type">דלק<small>בטופס: תדלוק - רכב חברה</small></td>
+            <td class="na">—</td>
+            <td class="na">—</td>
+            <td class="na">—</td>
+            <td class="opt">רק אם זה רכב חלופי</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--missing)"></i>כתום — חסר ונדרש</span>
+      <span><i class="sw" style="background:var(--na)"></i>אפור — לא רלוונטי</span>
+      <span><i class="sw" style="background:var(--paper)"></i>לבן — לפי הצורך; ריק = הרכב הרגיל</span>
+    </div>
+    <p class="note" style="color:var(--muted);font-size:15px">קבלות מסוגים אחרים (מוניות, לינה וכו׳) נכנסות לגיליון, אבל הסימנייה מדלגת עליהן — אותן מזינים ידנית.</p>
+  </section>
+
+  <section aria-labelledby="states">
+    <div class="sec-head">
+      <h2 id="states">לשונית "קליטה"</h2>
+      <p>כל קובץ בתיקייה מופיע כאן. אם קבלה לא הגיעה לגיליון — כתוב כאן למה.</p>
+    </div>
+    <dl class="states">
+      <dt>⏳ ממתין לקליטה</dt><dd>הקובץ נראה, הקריאה תתבצע בסבב הקרוב.</dd>
+      <dt>✅ נקלטה</dt><dd>יש שורה בלשונית הוצאות.</dd>
+      <dt>♻️ כבר קיימת בגיליון</dt><dd>אותה קבלה כבר הועלתה — לא נוספה שורה כפולה.</dd>
+      <dt>🤷 לא קבלה</dt><dd>התמונה לא נראית כמו קבלה. אפשר לצלם שוב ולהעלות.</dd>
+      <dt>⏳ ינוסה שוב</dt><dd>הייתה תקלה זמנית. אין צורך לעשות כלום.</dd>
+      <dt>⚠️ לא נקלטה</dt><dd>נכשלה כמה פעמים. הסיבה כתובה בעמודת הפרטים.</dd>
+      <dt>⛔ לא ניתן לקלוט</dt><dd>למשל קובץ גדול מ-8MB. צריך להעלות קובץ אחר.</dd>
+    </dl>
+  </section>
+
+  <section aria-labelledby="trouble">
+    <div class="sec-head">
+      <h2 id="trouble">אם משהו לא עובד</h2>
+    </div>
+    <div class="faq">
+      <details>
+        <summary>העליתי קבלה ולא הופיעה שורה</summary>
+        <p>מחכים 3–5 דקות ומסתכלים בלשונית <b>קליטה</b>. אם הקובץ לא מופיע שם בכלל — הוא כנראה לא בתוך התיקייה המשותפת (למשל בתת-תיקייה).</p>
+      </details>
+      <details>
+        <summary>כתוב "מכסת ה-AI היומית נגמרה"</summary>
+        <p>המפתח החינמי קורא עד 20 קבלות ביום. שאר הקבלות מחכות ונקלטות לבד כשהמכסה מתאפסת — לא צריך להעלות שוב.</p>
+      </details>
+      <details>
+        <summary>כתוב "מפתח ה-AI לא תקין"</summary>
+        <p>יוצרים מפתח חדש ב-AI Studio, ונרשמים שוב בדף ההרשמה עם אותה תיקייה והמפתח החדש. הקבלות שחיכו ייקלטו אחרי העדכון.</p>
+      </details>
+      <details>
+        <summary>הסימנייה נמחקה או שעברתי מחשב</summary>
+        <p>נרשמים שוב בדף ההרשמה עם אותה תיקייה ואותו מפתח — מקבלים את אותה סימנייה, בלי רישום כפול.</p>
+      </details>
+      <details>
+        <summary>מחקתי שורה מהגיליון ורוצה אותה בחזרה</summary>
+        <p>מוחקים את הקובץ מהתיקייה ומעלים אותו מחדש. קובץ שכבר נקלט לא נקרא פעם שנייה — כך המכסה לא נשרפת.</p>
+      </details>
+      <details>
+        <summary>הסימנייה נעצרה באמצע</summary>
+        <p>בחלון של הסימנייה כתוב בדיוק איפה ולמה. צילום מסך שלו למפעיל השירות מספיק כדי לתקן.</p>
+      </details>
+      <details>
+        <summary>טעות בנתון שנקרא מהקבלה</summary>
+        <p>מתקנים ישר בגיליון, לפני הלחיצה על הסימנייה. הסימנייה ממלאת את מה שכתוב בגיליון.</p>
+      </details>
+    </div>
+  </section>
+
+  <section class="privacy" aria-labelledby="privacy">
+    <div class="sec-head">
+      <h2 id="privacy">מה השירות רואה</h2>
+    </div>
+    <p>רק את התיקייה והגיליון ששיתפת — לא את שאר הדרייב, לא את המייל ולא את הוואטסאפ. את הקבצים בתיקייה הוא רק קורא, לא מוחק. אף עמית אחר לא רואה את הגיליון שלך, והסימנייה שלך עובדת רק על הקבלות שלך.</p>
+    <p>המפתח שלך וקישורי התיקייה והגיליון נשמרים בשרת שמפעיל השירות מנהל. רוצה להפסיק? מסירים את השיתוף מהתיקייה — וזהו.</p>
+    <p>קישור ההרשמה מיועד לצוות בלבד — לא מעבירים אותו הלאה.</p>
+  </section>
+
+  <footer>ההגשה בטופס נשארת תמיד בידיים שלך: הסימנייה ממלאת ושומרת כטיוטה, אבל לא שולחת.</footer>
+</div>
+
+<script>
+  document.querySelectorAll('[data-copy]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const el = document.getElementById(btn.dataset.copy);
+      const text = el.textContent.trim();
+      let ok = false;
+      try { await navigator.clipboard.writeText(text); ok = true; } catch (e) { /* חסום בחלון מוטמע */ }
+      if (!ok) {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      }
+      btn.textContent = ok ? 'הועתק' : 'סומן — Ctrl+C';
+      if (ok) btn.setAttribute('data-done', '');
+      setTimeout(() => { btn.textContent = 'העתקה'; btn.removeAttribute('data-done'); }, 2200);
+    });
+  });
+</script>
+</body>
+</html>
