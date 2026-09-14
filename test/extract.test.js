@@ -447,3 +447,11 @@ test('כללי הצביעה מתחילים אחרי כלל ✓', () => {
   assert.equal(Math.min(...idx), 1);
   assert.equal(new Set(idx).size, idx.length, 'אינדקסים כפולים');
 });
+
+import { EXPENSE_TYPE, FORM_EXPENSE_OPTIONS } from '../src/sheets.js';
+
+test('כל סוג הוצאה שהכלי בוחר קיים ברשימה של הטופס', () => {
+  for (const [cat, type] of Object.entries(EXPENSE_TYPE)) {
+    assert.ok(FORM_EXPENSE_OPTIONS.includes(type), `${cat} → "${type}" לא נמצא בטופס`);
+  }
+});
