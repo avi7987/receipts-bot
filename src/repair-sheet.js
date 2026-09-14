@@ -13,7 +13,7 @@
 // =====================================================================
 import 'dotenv/config';
 import crypto from 'crypto';
-import { HEADERS } from './sheets.js';
+import { HEADERS, categoryRuleRequests } from './sheets.js';
 
 const SHEET_ID = process.env.GOOGLE_SHEET_ID;
 const TAB = process.env.GOOGLE_SHEET_TAB || 'הוצאות';
@@ -144,5 +144,15 @@ if (last >= 2) {
   });
   console.log(`✅ תיבות סימון על ${L(COL_DONE)}2:${L(COL_DONE)}${last}`);
 }
+
+// ── 5. חסימת שדות לא רלוונטיים ───────────────────────────────────────
+//  שלב 2 מחק אימות נתונים מכל העמודות, וזה כולל את החסימה של שדות
+//  ידניים שלא שייכים לסוג הקבלה. מחזירים אותה — אחרת הרצת תיקון
+//  הייתה מבטלת בשקט את ההגנה.
+const validations = categoryRuleRequests(gid).filter((r) => r.setDataValidation);
+await fetch(`${API}/${SHEET_ID}:batchUpdate`, {
+  method: 'POST', headers: jauth, body: JSON.stringify({ requests: validations }),
+});
+console.log(`✅ הוחזרה חסימת שדות לא רלוונטיים (${validations.length} עמודות)`);
 
 console.log('\nהרץ עכשיו  npm run design  כדי ליישר את העיצוב.');

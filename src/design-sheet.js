@@ -10,7 +10,7 @@
 // =====================================================================
 import 'dotenv/config';
 import crypto from 'crypto';
-import { HEADERS } from './sheets.js';
+import { HEADERS, colLetter, categoryRuleRequests } from './sheets.js';
 
 const SHEET_ID = process.env.GOOGLE_SHEET_ID;
 const TAB = process.env.GOOGLE_SHEET_TAB || 'הוצאות';
@@ -210,12 +210,16 @@ req.push({
     rule: {
       ranges: [{ sheetId: gid, startRowIndex: 1, startColumnIndex: 0, endColumnIndex: N }],
       booleanRule: {
-        condition: { type: 'CUSTOM_FORMULA', values: [{ userEnteredValue: '=$K2=TRUE' }] },
+        condition: { type: 'CUSTOM_FORMULA', values: [{ userEnteredValue: `=$${colLetter(HEADERS.indexOf('הוזן במערכת') + 1)}2=TRUE` }] },
         format: { backgroundColor: DONE_BG, textFormat: { foregroundColor: DONE_INK } },
       },
     },
   },
 });
+
+// שדות ידניים לפי סוג הקבלה: כתום = חסר ונדרש, אפור = לא רלוונטי.
+// אחרי כלל ✓ — שורה שכבר הוזנה נשארת ירוקה ולא נצבעת בכתום.
+req.push(...categoryRuleRequests(gid, { startIndex: 1 }));
 
 // ── כרטיס הסיכום ────────────────────────────────────────────────────
 req.push({ mergeCells: { range: range(0, 1, 14, 16), mergeType: 'MERGE_ALL' } });

@@ -743,6 +743,128 @@ function nowInIsrael() {
   return `${p.day}/${p.month}/${p.year} ${p.hour}:${p.minute}`;
 }
 
+// ── אילו שדות ידניים שייכים לכל סוג קבלה ────────────────────────────
+//
+//  השדות האלה לא נקראים מהתמונה, והטופס של החברה שואל אותם רק לחלק
+//  מהסוגים. בלי הכוונה, מי שממלא ידנית לא יודע מה חסר ומה מיותר —
+//  וקל למלא לקוח לקבלת דלק, שהטופס בכלל לא מבקש.
+//
+//  optional = השדה רלוונטי אבל ריק הוא תשובה תקינה (רכב חלופי ריק
+//  פירושו הרכב הרגיל). כל מה שלא מופיע כאן — לא רלוונטי לסוג הזה.
+export const FIELD_RULES = {
+  'מסעדה': { required: ['guests', 'customer', 'guestNames'], optional: [] },
+  'חניה': { required: ['customer'], optional: ['altCar'] },
+  'דלק': { required: [], optional: ['altCar'] },
+};
+
+const MANUAL_FIELDS = [
+  ['guests', COL_GUESTS],
+  ['customer', COL_CUSTOMER],
+  ['guestNames', COL_GUEST_NAMES],
+  ['altCar', COL_ALT_CAR],
+];
+
+const categoriesWhere = (pick) => Object.entries(FIELD_RULES)
+  .filter(([, rule]) => pick(rule))
+  .map(([cat]) => cat);
+
+export function fieldApplies(category, field) {
+  const rule = FIELD_RULES[category];
+  return !!rule && (rule.required.includes(field) || rule.optional.includes(field));
+}
+
+export function fieldRequired(category, field) {
+  return !!FIELD_RULES[category]?.required.includes(field);
+}
+
+const MISSING_BG = { red: 1, green: 0.88, blue: 0.7 };     // כתום — חסר ונדרש
+const NA_BG = { red: 0.9, green: 0.9, blue: 0.9 };         // אפור — לא רלוונטי
+const NA_INK = { red: 0.62, green: 0.62, blue: 0.62 };
+
+/**
+ * הכללים לשדות הידניים: צביעה, חסימת הקלדה במקום לא רלוונטי, והערה
+ * בכותרת. אותה פונקציה משמשת גיליון חדש, עיצוב מחדש ותיקון — כך
+ * שאין שלוש גרסאות של אותו כלל שמתרחקות זו מזו.
+ *
+ * האותיות נגזרות מהעמודות ולא נכתבות ביד: אות מקובעת כבר הזיזה
+ * פעם את כלל הצביעה לעמודה הלא נכונה.
+ *
+ * @param {number} startIndex  מיקום הכלל הראשון. חייב לבוא אחרי כלל ✓,
+ *   כדי ששורה שכבר הוזנה תישאר ירוקה ולא תצבע בכתום.
+ */
+export function categoryRuleRequests(gid, { startIndex = 1 } = {}) {
+  const cat = `$${colLetter(COL_CATEGORY + 1)}2`;
+  const done = `$${colLetter(COL_DONE + 1)}2`;
+  const anyOf = (cats) => (cats.length ? `OR(${cats.map((c) => `${cat}="${c}"`).join(',')})` : 'FALSE');
+
+  const requests = [];
+  let index = startIndex;
+
+  for (const [field, col] of MANUAL_FIELDS) {
+    const cell = `${colLetter(col + 1)}2`;
+    const range = { sheetId: gid, startRowIndex: 1, startColumnIndex: col, endColumnIndex: col + 1 };
+    const required = categoriesWhere((r) => r.required.includes(field));
+    const applies = categoriesWhere((r) => r.required.includes(field) || r.optional.includes(field));
+
+    // חסר ונדרש — רק בשורה שעוד לא הוזנה
+    if (required.length) {
+      requests.push({
+        addConditionalFormatRule: {
+          index: index++,
+          rule: {
+            ranges: [range],
+            booleanRule: {
+              condition: { type: 'CUSTOM_FORMULA', values: [{ userEnteredValue: `=AND(${done}<>TRUE,${anyOf(required)},LEN(${cell})=0)` }] },
+              format: { backgroundColor: MISSING_BG },
+            },
+          },
+        },
+      });
+    }
+
+    // לא רלוונטי לסוג הזה. קטגוריה ריקה לא נצבעת — אולי עוד לא נקבעה.
+    requests.push({
+      addConditionalFormatRule: {
+        index: index++,
+        rule: {
+          ranges: [range],
+          booleanRule: {
+            condition: { type: 'CUSTOM_FORMULA', values: [{ userEnteredValue: `=AND(${cat}<>"",NOT(${anyOf(applies)}))` }] },
+            format: { backgroundColor: NA_BG, textFormat: { foregroundColor: NA_INK } },
+          },
+        },
+      },
+    });
+
+    // חסימת הקלדה בשדה לא רלוונטי. כתיבה דרך ה-API לא נחסמת בזה,
+    // וזה בסדר: הבוט כותב רק שדות שהוא שאל עליהם.
+    const where = applies.join(', ');
+    requests.push({
+      setDataValidation: {
+        range,
+        rule: {
+          condition: { type: 'CUSTOM_FORMULA', values: [{ userEnteredValue: `=OR(${cat}="",${anyOf(applies)})` }] },
+          strict: true,
+          inputMessage: `רלוונטי רק ל: ${where}`,
+        },
+      },
+    });
+
+    const need = required.length ? `חובה: ${required.join(', ')}` : '';
+    const may = applies.filter((c) => !required.includes(c));
+    const opt = may.length ? `לפי הצורך: ${may.join(', ')}` : '';
+    requests.push({
+      updateCells: {
+        range: { sheetId: gid, startRowIndex: 0, endRowIndex: 1, startColumnIndex: col, endColumnIndex: col + 1 },
+        rows: [{ values: [{ note: [need, opt, '', 'כתום = חסר ונדרש', 'אפור = לא רלוונטי לסוג הקבלה'].filter((l, i) => l || i > 1).join('\n') }] }],
+        fields: 'note',
+      },
+    });
+  }
+
+  return requests;
+}
+
 // כל העיצוב במכה אחת. טווח בלי endRowIndex = כל השורות, גם העתידיות.
 async function applyFormatting(token, gid) {
   const all = (startCol, endCol) => ({ sheetId: gid, startRowIndex: 1, startColumnIndex: startCol, endColumnIndex: endCol });
@@ -831,14 +953,16 @@ async function applyFormatting(token, gid) {
     // אסור להחיל אותה כאן על כל העמודה: זה ממלא את הגיליון בתיבות
     // ריקות ומבלבל את גוגל לגבי היכן נגמרת הטבלה.
 
-    // ✓ → השורה נצבעת ירוק והטקסט מאפיר
+    // ✓ → השורה נצבעת ירוק והטקסט מאפיר.
+    // האות נגזרת מהעמודה: כאן היה כתוב F מימים שבהם הסימון ישב שם,
+    // ובכל גיליון חדש שהבוט בנה ✓ פשוט לא צבע כלום.
     {
       addConditionalFormatRule: {
         index: 0,
         rule: {
           ranges: [{ sheetId: gid, startRowIndex: 1, startColumnIndex: 0, endColumnIndex: HEADERS.length }],
           booleanRule: {
-            condition: { type: 'CUSTOM_FORMULA', values: [{ userEnteredValue: '=$F2=TRUE' }] },
+            condition: { type: 'CUSTOM_FORMULA', values: [{ userEnteredValue: `=$${colLetter(COL_DONE + 1)}2=TRUE` }] },
             format: {
               backgroundColor: { red: 0.85, green: 0.94, blue: 0.83 },
               textFormat: { foregroundColor: { red: 0.42, green: 0.46, blue: 0.42 } },
@@ -847,6 +971,8 @@ async function applyFormatting(token, gid) {
         },
       },
     },
+    // שדות ידניים לפי סוג הקבלה — אחרי כלל ✓, כדי ששורה שהוזנה תישאר ירוקה
+    ...categoryRuleRequests(gid, { startIndex: 1 }),
     // רוחב עמודות נוח
     ...[[0, 100], [1, 70], [2, 180], [3, 120], [4, 130], [5, 120], [6, 110], [7, 145], [8, 80], [10, 150], [11, 125]].map(([i, px]) => ({
       updateDimensionProperties: {

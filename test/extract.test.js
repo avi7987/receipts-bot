@@ -394,3 +394,56 @@ test('rowMatches לא מסמן בלי שום סימן מזהה', () => {
   // סכום בלבד מספיק כשאין מספר חשבונית בקבלה
   assert.equal(rowMatches(sheetRow('', 219), null, 219), true);
 });
+
+// ── שדות ידניים לפי סוג קבלה ────────────────────────────────────────
+import { FIELD_RULES, fieldApplies, fieldRequired, categoryRuleRequests } from '../src/sheets.js';
+
+test('דלק לא מבקש לקוח ושמות, ורכב חלופי רשות', () => {
+  assert.equal(fieldApplies('דלק', 'customer'), false);
+  assert.equal(fieldApplies('דלק', 'guestNames'), false);
+  assert.equal(fieldApplies('דלק', 'guests'), false);
+  assert.equal(fieldApplies('דלק', 'altCar'), true);
+  assert.equal(fieldRequired('דלק', 'altCar'), false);   // ריק = הרכב הרגיל
+});
+
+test('מסעדה מחייבת לקוח, סועדים ושמות — ורכב לא רלוונטי', () => {
+  for (const f of ['customer', 'guests', 'guestNames']) assert.equal(fieldRequired('מסעדה', f), true, f);
+  assert.equal(fieldApplies('מסעדה', 'altCar'), false);
+});
+
+test('חניה מחייבת לקוח, ורכב חלופי רשות', () => {
+  assert.equal(fieldRequired('חניה', 'customer'), true);
+  assert.equal(fieldApplies('חניה', 'altCar'), true);
+  assert.equal(fieldRequired('חניה', 'altCar'), false);
+  assert.equal(fieldApplies('חניה', 'guestNames'), false);
+});
+
+test('קטגוריה שהכלי לא מזין — אף שדה ידני לא רלוונטי', () => {
+  for (const f of ['customer', 'guests', 'guestNames', 'altCar']) assert.equal(fieldApplies('תחבורה', f), false);
+});
+
+test('הכללים מצביעים על העמודות הנכונות, לא על אות מקובעת', () => {
+  const reqs = categoryRuleRequests(0);
+  const cat = `$${colLetter(HEADERS.indexOf('קטגוריה') + 1)}2`;
+  const done = `$${colLetter(HEADERS.indexOf('הוזן במערכת') + 1)}2`;
+  const formulas = reqs.flatMap((r) => [
+    r.addConditionalFormatRule?.rule.booleanRule.condition.values[0].userEnteredValue,
+    r.setDataValidation?.rule.condition.values[0].userEnteredValue,
+  ]).filter(Boolean);
+  assert.ok(formulas.length > 0);
+  for (const f of formulas) assert.ok(f.includes(cat), `חסרה עמודת הקטגוריה: ${f}`);
+  assert.ok(formulas.some((f) => f.includes(done)), 'כלל "חסר" חייב לדלג על שורה שהוזנה');
+
+  // לקוח: החסימה מתירה בדיוק מסעדה וחניה
+  const customerCol = HEADERS.indexOf('לקוח');
+  const v = reqs.find((r) => r.setDataValidation?.range.startColumnIndex === customerCol);
+  const f = v.setDataValidation.rule.condition.values[0].userEnteredValue;
+  assert.ok(f.includes('"מסעדה"') && f.includes('"חניה"') && !f.includes('"דלק"'), f);
+  assert.equal(v.setDataValidation.rule.strict, true);
+});
+
+test('כללי הצביעה מתחילים אחרי כלל ✓', () => {
+  const idx = categoryRuleRequests(0).map((r) => r.addConditionalFormatRule?.index).filter((i) => i !== undefined);
+  assert.equal(Math.min(...idx), 1);
+  assert.equal(new Set(idx).size, idx.length, 'אינדקסים כפולים');
+});
