@@ -13,6 +13,10 @@
 (async function () {
   const API = '__API__';          // מוחלף בבנייה
   const KEY = '__KEY__';
+  // שורות מוטמעות: בבנייה רגילה נשאר כמו שהוא והשורות נמשכות מהשרת.
+  // בבניית בדיקה מוחלף במערך — כך אפשר להריץ את הטופס מול גיליון
+  // אחר בלי לפרוס שום דבר לשרת.
+  const EMBEDDED = '__ROWS__';
 
   const TBD = 'TBD';
 
@@ -251,7 +255,9 @@
 
   const bar = document.createElement('div');
   bar.setAttribute('style', 'background:#263238;color:#fff;padding:10px 14px;display:flex;gap:8px;align-items:center;border-radius:7px 7px 0 0');
-  bar.innerHTML = '<b style="flex:1">מילוי טופס הוצאות <span style="opacity:.6;font-weight:400">v11</span></b>';
+  bar.innerHTML = '<b style="flex:1">מילוי טופס הוצאות <span style="opacity:.6;font-weight:400">v12</span>'
+    + (EMBEDDED.startsWith('[') ? ' <span style="background:#6a1b9a;padding:1px 7px;border-radius:4px;font-weight:400">בדיקה</span>' : '')
+    + '</b>';
 
   const stopBtn = document.createElement('button');
   stopBtn.textContent = 'עצור';
@@ -281,16 +287,21 @@
   }
 
   // ── משיכת הקבלות ──────────────────────────────────────────────────
-  log('⏳ מושך את הקבלות הממתינות...');
   let pending;
-  try {
-    const r = await fetch(`${API}/pending?k=${KEY}`, { mode: 'cors', credentials: 'omit' });
-    if (!r.ok) throw new Error(`שרת החזיר ${r.status}`);
-    pending = (await r.json()).rows || [];
-  } catch (e) {
-    log(`❌ לא הצלחתי למשוך: ${e.message}`, '#c62828');
-    log('בדוק שהשרת חי ושהמפתח נכון.', '#78909c');
-    return;
+  if (EMBEDDED.startsWith('[')) {
+    pending = JSON.parse(EMBEDDED);
+    log('📌 מצב בדיקה — השורות מוטמעות בסימנייה, לא נמשכות מהשרת', '#6a1b9a');
+  } else {
+    log('⏳ מושך את הקבלות הממתינות...');
+    try {
+      const r = await fetch(`${API}/pending?k=${KEY}`, { mode: 'cors', credentials: 'omit' });
+      if (!r.ok) throw new Error(`שרת החזיר ${r.status}`);
+      pending = (await r.json()).rows || [];
+    } catch (e) {
+      log(`❌ לא הצלחתי למשוך: ${e.message}`, '#c62828');
+      log('בדוק שהשרת חי ושהמפתח נכון.', '#78909c');
+      return;
+    }
   }
 
   const ready = pending.filter((p) => p.expenseType);

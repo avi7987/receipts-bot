@@ -21,3 +21,6 @@ node_modules/
 # מערכת הפעלה
 .DS_Store
 Thumbs.db
+
+# סימניית בדיקה — מכילה נתוני קבלות אמיתיים
+tools/fill-form.test.bookmarklet.txt

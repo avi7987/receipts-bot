@@ -18,7 +18,12 @@ import { fileURLToPath } from 'url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.join(here, 'fill-form.js');
-const OUT = path.join(here, 'fill-form.bookmarklet.txt');
+
+//  בניית בדיקה: ROWS_SHEET_ID=<גיליון> npm run bookmarklet
+//  השורות הממתינות בגיליון הזה נטמעות בסימנייה, והיא נכתבת לקובץ
+//  נפרד — כדי שהסימנייה הרגילה שלך לא תידרס בגרסת בדיקה.
+const ROWS_SHEET = (process.env.ROWS_SHEET_ID || '').trim();
+const OUT = path.join(here, ROWS_SHEET ? 'fill-form.test.bookmarklet.txt' : 'fill-form.bookmarklet.txt');
 
 const secret = process.env.LINK_SECRET;
 if (!secret) { console.error('❌ חסר LINK_SECRET ב-.env'); process.exit(1); }
@@ -40,10 +45,24 @@ if (!src.includes('__API__') || !src.includes('__KEY__')) {
 }
 src = src.replace('__API__', api).replace('__KEY__', key);
 
+let embedded = null;
+if (ROWS_SHEET) {
+  // מודול הגיליונות קורא את המזהה בטעינה, ולכן מגדירים לפני הייבוא
+  process.env.GOOGLE_SHEET_ID = ROWS_SHEET;
+  const { pendingRows } = await import('../src/sheets.js');
+  embedded = await pendingRows();
+  if (!embedded.length) { console.error('❌ אין שורות ממתינות בגיליון הזה'); process.exit(1); }
+  // מחרוזת JS תקנית שמכילה JSON — היא מחליפה את המחרוזת '__ROWS__'
+  src = src.replace("'__ROWS__'", JSON.stringify(JSON.stringify(embedded)));
+}
+
 fs.writeFileSync(OUT, `javascript:${encodeURIComponent(src)}`);
 
 const version = />v(\d+)</.exec(src)?.[1] || '?';
-console.log(`✅ נבנתה סימנייה v${version}`);
+console.log(`✅ נבנתה סימנייה v${version}${embedded ? ' — מצב בדיקה' : ''}`);
+if (embedded) {
+  for (const r of embedded) console.log(`   · ${r.vendor} · ${r.amount} ₪ · ${r.category} · קובץ: ${r.file ? 'יש' : 'אין'}`);
+}
 console.log(`   כתובת: ${api}`);
 console.log(`   גודל:  ${fs.statSync(OUT).size.toLocaleString('he-IL')} תווים`);
 console.log(`   קובץ:  ${OUT}`);
