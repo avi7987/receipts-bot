@@ -24,3 +24,6 @@ Thumbs.db
 
 # סימניית בדיקה — מכילה נתוני קבלות אמיתיים
 tools/fill-form.test.bookmarklet.txt
+
+# נתוני שירות הדרייב — מפתחות של עמיתים
+data/

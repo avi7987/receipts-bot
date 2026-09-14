@@ -17,7 +17,9 @@
     "add-guests": "node src/add-guest-columns.js",
     "repair": "node src/repair-sheet.js",
     "bookmarklet": "node tools/build-bookmarklet.js",
-    "drive": "node src/ingest-drive.js"
+    "drive": "node src/ingest-drive.js",
+    "drive:service": "node src/drive-service.js",
+    "colleague": "node src/colleague-admin.js"
   },
   "engines": {
     "node": ">=22"

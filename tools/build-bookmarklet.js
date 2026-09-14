@@ -1,5 +1,5 @@
 // =====================================================================
-//  build-bookmarklet.js — בונה את הסימנייה מתוך fill-form.js.
+//  build-bookmarklet.js — בונה את הסימנייה שלך מתוך fill-form.js.
 //
 //  הרצה:  npm run bookmarklet
 //
@@ -8,16 +8,17 @@
 //  __API__ בפנים והכפתור פשוט לא עשה כלום. עכשיו זו פקודה אחת.
 //
 //  המפתח נגזר מ-LINK_SECRET באותה נוסחה שהשרת משתמש בה, כדי
-//  שהשניים לא יוכלו להיפרד.
+//  שהשניים לא יוכלו להיפרד. הבנייה עצמה משותפת עם הסימניות של
+//  העמיתים (src/bookmarklet.js).
 // =====================================================================
 import 'dotenv/config';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { buildBookmarklet } from '../src/bookmarklet.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const SRC = path.join(here, 'fill-form.js');
 
 //  בניית בדיקה: ROWS_SHEET_ID=<גיליון> npm run bookmarklet
 //  השורות הממתינות בגיליון הזה נטמעות בסימנייה, והיא נכתבת לקובץ
@@ -28,40 +29,30 @@ const OUT = path.join(here, ROWS_SHEET ? 'fill-form.test.bookmarklet.txt' : 'fil
 const secret = process.env.LINK_SECRET;
 if (!secret) { console.error('❌ חסר LINK_SECRET ב-.env'); process.exit(1); }
 
-// https ולא http: הסימנייה רצה בתוך דף של ServiceNow, והדפדפן חוסם
-// קריאה ל-http מדף מאובטח.
 const api = (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
-if (!/^https:\/\//.test(api)) {
-  console.error(`❌ PUBLIC_BASE_URL חייב להיות https. כרגע: ${api || '(ריק)'}`);
-  process.exit(1);
-}
-
 const key = crypto.createHash('sha256').update(`${secret}:pending`).digest('hex').slice(0, 32);
 
-let src = fs.readFileSync(SRC, 'utf8');
-if (!src.includes('__API__') || !src.includes('__KEY__')) {
-  console.error('❌ אין ב-fill-form.js את הסמנים __API__ / __KEY__');
-  process.exit(1);
-}
-src = src.replace('__API__', api).replace('__KEY__', key);
-
-let embedded = null;
+let rows = null;
 if (ROWS_SHEET) {
   // מודול הגיליונות קורא את המזהה בטעינה, ולכן מגדירים לפני הייבוא
   process.env.GOOGLE_SHEET_ID = ROWS_SHEET;
   const { pendingRows } = await import('../src/sheets.js');
-  embedded = await pendingRows();
-  if (!embedded.length) { console.error('❌ אין שורות ממתינות בגיליון הזה'); process.exit(1); }
-  // מחרוזת JS תקנית שמכילה JSON — היא מחליפה את המחרוזת '__ROWS__'
-  src = src.replace("'__ROWS__'", JSON.stringify(JSON.stringify(embedded)));
+  rows = await pendingRows();
+  if (!rows.length) { console.error('❌ אין שורות ממתינות בגיליון הזה'); process.exit(1); }
 }
 
-fs.writeFileSync(OUT, `javascript:${encodeURIComponent(src)}`);
+let built;
+try {
+  built = buildBookmarklet({ api, key, rows });
+} catch (e) {
+  console.error(`❌ ${e.message}`);
+  process.exit(1);
+}
+fs.writeFileSync(OUT, built.text);
 
-const version = />v(\d+)</.exec(src)?.[1] || '?';
-console.log(`✅ נבנתה סימנייה v${version}${embedded ? ' — מצב בדיקה' : ''}`);
-if (embedded) {
-  for (const r of embedded) console.log(`   · ${r.vendor} · ${r.amount} ₪ · ${r.category} · קובץ: ${r.file ? 'יש' : 'אין'}`);
+console.log(`✅ נבנתה סימנייה v${built.version}${rows ? ' — מצב בדיקה' : ''}`);
+if (rows) {
+  for (const r of rows) console.log(`   · ${r.vendor} · ${r.amount} ₪ · ${r.category} · קובץ: ${r.file ? 'יש' : 'אין'}`);
 }
 console.log(`   כתובת: ${api}`);
 console.log(`   גודל:  ${fs.statSync(OUT).size.toLocaleString('he-IL')} תווים`);

@@ -25,18 +25,27 @@ export function driveConfigured() {
 }
 
 // ── אימות ───────────────────────────────────────────────────────────
-let cached = { token: null, until: 0 };
+//  טוקן נפרד לכל הרשאה: לדרייב מבקשים קריאה בלבד, ולגיליון — עריכה.
+//  טוקן אחד רחב לשניהם היה נותן לקוד הדרייב יכולת למחוק קבצים.
+const cache = new Map();
 
 const b64 = (s) => Buffer.from(s).toString('base64url');
 
-export async function accessToken() {
-  if (cached.token && Date.now() < cached.until) return cached.token;
+export const SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
+
+export function accessToken() {
+  return tokenFor(SCOPE);
+}
+
+export async function tokenFor(scope) {
+  const hit = cache.get(scope);
+  if (hit && Date.now() < hit.until) return hit.token;
   if (!driveConfigured()) throw new Error('drive-not-configured');
 
   const now = Math.floor(Date.now() / 1000);
   const head = b64(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
   const claim = b64(JSON.stringify({
-    iss: SA_EMAIL, scope: SCOPE,
+    iss: SA_EMAIL, scope,
     aud: 'https://oauth2.googleapis.com/token', iat: now, exp: now + 3600,
   }));
   const sg = crypto.createSign('RSA-SHA256');
@@ -54,8 +63,42 @@ export async function accessToken() {
   const j = await res.json();
   if (!j.access_token) throw new Error(`אימות דרייב נכשל: ${JSON.stringify(j).slice(0, 200)}`);
 
-  cached = { token: j.access_token, until: Date.now() + (j.expires_in - 120) * 1000 };
-  return cached.token;
+  cache.set(scope, { token: j.access_token, until: Date.now() + (j.expires_in - 120) * 1000 });
+  return j.access_token;
+}
+
+// ── חיפוש הגיליון בתוך התיקייה ───────────────────────────────────────
+//  כך העמית לא צריך לשלוח שני קישורים: הוא יוצר גיליון בתוך התיקייה,
+//  וההרשאה על התיקייה עוברת אליו בירושה.
+export async function spreadsheetsIn(folderId) {
+  const token = await accessToken();
+  const url = new URL(`${API}/files`);
+  url.searchParams.set('q', `'${folderId}' in parents and trashed=false and mimeType='application/vnd.google-apps.spreadsheet'`);
+  url.searchParams.set('fields', 'files(id,name,capabilities(canEdit))');
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20000) });
+  if (!res.ok) throw new Error(`Drive list ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return (await res.json()).files || [];
+}
+
+/** פרטי קובץ, כולל התיקייה שהוא יושב בה */
+export async function fileMeta(fileId) {
+  const token = await accessToken();
+  const res = await fetch(`${API}/files/${fileId}?fields=id,name,mimeType,size,parents,trashed`, {
+    headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20000),
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Drive meta ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return res.json();
+}
+
+/** פותח קובץ להזרמה — בשביל קישור ההורדה בגיליון ובסימנייה */
+export async function openFile(fileId) {
+  const token = await accessToken();
+  const res = await fetch(`${API}/files/${fileId}?alt=media`, {
+    headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(60000),
+  });
+  if (!res.ok) throw new Error(`Drive download ${res.status}`);
+  return res;
 }
 
 // ── התיקייה ─────────────────────────────────────────────────────────
