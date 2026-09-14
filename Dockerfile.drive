@@ -1,0 +1,22 @@
+# ============================================================
+#  Dockerfile.drive — שירות קליטת הקבלות מדרייב, לעמיתים.
+#
+#  מכולה נפרדת מבוט הוואטסאפ ורזה ממנו: אין כאן Chromium, כי
+#  השירות לא פותח דפדפן — רק קורא לדרייב, ל-AI ולגיליונות.
+# ============================================================
+FROM node:22-slim
+
+ENV NODE_ENV=production \
+    PUPPETEER_SKIP_DOWNLOAD=true \
+    DRIVE_DATA_DIR=/app/data \
+    PORT=3200
+
+WORKDIR /app
+COPY package*.json ./
+RUN npm install --omit=dev
+COPY src ./src
+# הסימנייה נבנית מהקובץ הזה בזמן הוספת עמית
+COPY tools/fill-form.js ./tools/fill-form.js
+
+EXPOSE 3200
+CMD ["node", "src/drive-service.js"]

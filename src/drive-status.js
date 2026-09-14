@@ -48,10 +48,11 @@ function stateText(entry) {
   }
 }
 
+//  בלי מספרי שורות: הגיליון ממוין לפי תאריך אחרי כל כתיבה, ומספר
+//  שנרשם ברגע הקליטה כבר לא נכון אחרי הקבלה הבאה. ספק וסכום לא זזים.
 function detailText(entry) {
   if (!entry) return '';
-  if (entry.status === 'done') return [entry.label, entry.row ? `שורה ${entry.row}` : ''].filter(Boolean).join(' · ');
-  if (entry.status === 'duplicate') return entry.row ? `שורה ${entry.row}` : '';
+  if (entry.status === 'done' || entry.status === 'duplicate') return entry.label || '';
   return entry.reason || '';
 }
 

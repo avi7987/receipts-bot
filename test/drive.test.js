@@ -94,7 +94,9 @@ test('כל קובץ בתיקייה מופיע בסטטוס, גם כזה שלא �
   assert.match(rows[0][2], /ממתין/);
   const byName = Object.fromEntries(rows.map((r) => [r[0], r]));
   assert.match(byName['ישן.jpg'][2], /נקלטה/);
-  assert.match(byName['ישן.jpg'][3], /שורה 4/);
+  assert.match(byName['ישן.jpg'][3], /גולדה/);
+  // מספר שורה מתיישן אחרי מיון — לא מציגים אותו
+  assert.doesNotMatch(byName['ישן.jpg'][3], /שורה/);
   assert.match(byName['תקוע.jpg'][2], /לא נקלטה/);
   assert.match(byName['תקוע.jpg'][3], /מפתח/);
   assert.match(byName['ענק.pdf'][2], /לא ניתן לקלוט/, 'קובץ גדול מדי אינו "לא קבלה"');
