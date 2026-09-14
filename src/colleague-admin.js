@@ -1,5 +1,5 @@
 // =====================================================================
-//  colleague-admin.js — הוספה וניהול של עמיתים בשירות הדרייב.
+//  colleague-admin.js — ניהול עמיתים בשירות הדרייב.
 //
 //  add       --name "דני כהן" --folder <קישור לתיקייה>   (המפתח ב-stdin)
 //  list
@@ -7,24 +7,21 @@
 //  pause <id> | resume <id>
 //  remove <id>
 //
+//  ברוב המקרים לא צריך את add: עמיתים נרשמים לבד בדף /join. הפקודה
+//  נשארת למקרה שמישהו לא מסתדר, והיא מריצה בדיוק את אותן בדיקות
+//  (onboard.js) — אין מסלול "קל יותר" שמדלג על משהו.
+//
 //  המפתח נקרא מהקלט ולא מהפקודה, כדי שלא יישאר בהיסטוריית המסוף
 //  ולא יופיע ברשימת התהליכים של השרת.
-//
-//  ההוספה בודקת הכול לפני שהיא שומרת: שהתיקייה משותפת, שיש בה
-//  גיליון אחד שאפשר לערוך, שהמפתח עובד באמת, ושהוא לא המפתח שלך.
-//  עדיף שהבדיקה תיכשל עכשיו, מול מי שמוסיף, מאשר שעמית יגלה אחרי
-//  יומיים שאף קבלה לא נקלטה.
 // =====================================================================
 import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
 import * as C from './colleagues.js';
-import { folderInfo, spreadsheetsIn } from './drive.js';
-import { runWorker } from './drive-runner.js';
+import { register } from './onboard.js';
 import { buildBookmarklet } from './bookmarklet.js';
 
 const PUBLIC = (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
-const MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 
 const [cmd, ...rest] = process.argv.slice(2);
 const flag = (name) => {
@@ -40,23 +37,6 @@ async function readStdin() {
   return Buffer.concat(chunks).toString('utf8').trim();
 }
 
-// ── בדיקת מפתח AI בקריאה אמיתית ─────────────────────────────────────
-async function checkKey(key) {
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-    signal: AbortSignal.timeout(60000),
-    body: JSON.stringify({ contents: [{ parts: [{ text: 'ok' }] }], generationConfig: { maxOutputTokens: 256 } }),
-  });
-  if (res.ok) return { ok: true };
-  const text = (await res.text()).slice(0, 300);
-  // מכסה שנגמרה פירושה שהמפתח עצמו תקין
-  if (res.status === 429) return { ok: true, warning: 'המפתח תקין, אבל המכסה היומית שלו נגמרה כרגע' };
-  if ([400, 401, 403].includes(res.status)) return { ok: false, error: 'המפתח לא תקין או לא פעיל' };
-  if (res.status === 404) return { ok: false, error: `המודל ${MODEL} לא זמין למפתח הזה` };
-  return { ok: false, error: `Gemini ${res.status}: ${text}` };
-}
-
 function writeBookmarklet(c) {
   const { text, version } = buildBookmarklet({ api: PUBLIC, key: C.pendingKeyOf(c.secret) });
   const dir = path.join(C.DATA_DIR, 'bookmarklets');
@@ -70,88 +50,27 @@ const sheetUrl = (id) => `https://docs.google.com/spreadsheets/d/${id}/edit`;
 
 // ── add ─────────────────────────────────────────────────────────────
 async function add() {
-  const name = (flag('name') || '').trim();
-  const folderId = C.folderIdFrom(flag('folder'));
-  if (!name) die('חסר --name');
-  if (!folderId) die('חסר --folder (קישור לתיקייה בדרייב)');
-  if (!PUBLIC.startsWith('https://')) die('PUBLIC_BASE_URL חסר או לא https');
+  const key = flag('key') || (await readStdin());
+  const labels = { folder: 'תיקייה', sheet: 'גיליון', key: 'מפתח AI', setup: 'הכנת הגיליון' };
 
-  const key = (flag('key') || (await readStdin())).split(/\s+/)[0] || '';
-  if (!key) die('חסר מפתח AI (העבר ב-stdin)');
-
-  const all = C.list();
-  if (all.some((c) => c.folderId === folderId)) die('התיקייה הזו כבר רשומה לעמית אחר');
-
-  // 1. התיקייה
-  process.stdout.write('1/4 תיקייה... ');
-  let folder;
+  let r;
   try {
-    folder = await folderInfo(folderId);
+    r = await register({
+      name: flag('name'),
+      folder: flag('folder'),
+      key,
+      onStep: (s) => console.log(`   · ${labels[s] || s}...`),
+    });
   } catch (e) {
-    const why = {
-      'folder-not-shared': `התיקייה לא משותפת עם ${process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL}`,
-      'not-a-folder': 'הקישור אינו לתיקייה',
-      'folder-not-readable': 'התיקייה משותפת אבל בלי הרשאת קריאה',
-    }[e.message] || e.message;
-    die(why);
+    die(e.message);
   }
-  console.log(`✅ ${folder.name}`);
 
-  // 2. הגיליון שבתוך התיקייה
-  process.stdout.write('2/4 גיליון... ');
-  const sheets = await spreadsheetsIn(folderId);
-  let sheet;
-  const wanted = flag('sheet');
-  if (wanted) sheet = sheets.find((s) => s.id === wanted);
-  else if (sheets.length === 1) [sheet] = sheets;
-  if (!sheet) {
-    if (!sheets.length) die('אין גיליון בתוך התיקייה. צריך ליצור בה Google Sheets ריק');
-    die(`יש ${sheets.length} גיליונות בתיקייה — בחר עם --sheet <id>:\n${sheets.map((s) => `   ${s.id}  ${s.name}`).join('\n')}`);
-  }
-  if (sheet.capabilities?.canEdit === false) die('לגיליון יש הרשאת צפייה בלבד — השיתוף צריך להיות "עורך"');
-  console.log(`✅ ${sheet.name}`);
-
-  // 3. המפתח
-  process.stdout.write('3/4 מפתח AI... ');
-  const hash = C.keyHash(key);
-  if (process.env.OWNER_KEY_HASH && hash === process.env.OWNER_KEY_HASH) {
-    die('זה המפתח שלך. לכל עמית צריך מפתח מחשבון הגוגל שלו — אחרת הקבלות שלו נספרות על המכסה שלך');
-  }
-  const twin = all.find((c) => C.keyHash(c.geminiKey) === hash);
-  if (twin) die(`המפתח כבר בשימוש אצל ${twin.name} — שני אנשים על מפתח אחד חולקים מכסה`);
-  const check = await checkKey(key);
-  if (!check.ok) die(check.error);
-  console.log(check.warning ? `⚠️  ${check.warning}` : '✅ עובד');
-
-  // 4. שמירה והכנת הגיליון
-  process.stdout.write('4/4 הכנת הגיליון... ');
-  const c = {
-    id: C.newId(),
-    name,
-    folderId,
-    folderName: folder.name,
-    sheetId: sheet.id,
-    sheetName: sheet.name,
-    geminiKey: key,
-    secret: C.newSecret(),
-    active: true,
-    createdAt: new Date().toISOString(),
-  };
-  C.save([...all, c]);
-
-  const r = await runWorker(c, 'setup', { timeoutMs: 120e3 });
-  if (!r.ok) {
-    // לא משאירים רשומה חצי־עובדת
-    C.save(C.list().filter((x) => x.id !== c.id));
-    die(`הכנת הגיליון נכשלה: ${r.error}`);
-  }
-  console.log('✅');
-
-  const bm = writeBookmarklet(c);
-  console.log(`\n🎉 ${name} נוסף/ה (${c.id})`);
-  console.log(`   גיליון:  ${sheetUrl(c.sheetId)}`);
+  const bm = writeBookmarklet(r.colleague);
+  const verb = { created: 'נוסף/ה', recovered: 'כבר רשום/ה — הסימנייה נבנתה מחדש', updated: 'המפתח הוחלף' }[r.status];
+  console.log(`\n🎉 ${r.colleague.name} ${verb} (${r.colleague.id})`);
+  if (r.warning) console.log(`   ⚠️  ${r.warning}`);
+  console.log(`   גיליון:  ${r.sheetUrl}`);
   console.log(`   סימנייה: ${bm.file} (v${bm.version})`);
-  console.log('   הקבלות שכבר בתיקייה ייקלטו בסבב הקרוב.');
   if (rest.includes('--print-bookmarklet')) console.log(`\n@@BOOKMARKLET ${bm.text}`);
 }
 
@@ -176,7 +95,7 @@ switch (cmd) {
     const all = C.list();
     if (!all.length) console.log('אין עמיתים רשומים.');
     for (const c of all) {
-      console.log(`${c.active === false ? '⏸' : '▶'} ${c.id}  ${c.name}  ·  📁 ${c.folderName}  ·  ${sheetUrl(c.sheetId)}`);
+      console.log(`${c.active === false ? '⏸' : '▶'} ${c.id}  ${c.name}  ·  📁 ${c.folderName}  ·  נרשם ${String(c.createdAt || '').slice(0, 10)}  ·  ${sheetUrl(c.sheetId)}`);
     }
     break;
   }

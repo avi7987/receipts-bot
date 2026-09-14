@@ -120,3 +120,84 @@ test('סיומת קובץ לקישור', () => {
   assert.equal(S.extOf('application/pdf', 'קבלה'), 'pdf');
   assert.equal(S.extOf('image/png', ''), 'png');
 });
+
+// ── הרשמה עצמית ─────────────────────────────────────────────────────
+const O = await import('../src/onboard.js');
+
+test('הגבלת קצב: לכל כתובת בנפרד, ומשתחררת עם הזמן', () => {
+  const allow = O.makeLimiter({ perIp: 3, perIpWindowMs: 1000, global: 100, globalWindowMs: 1000 });
+  const t = 1_000_000;
+  assert.equal(allow('1.1.1.1', t), true);
+  assert.equal(allow('1.1.1.1', t + 1), true);
+  assert.equal(allow('1.1.1.1', t + 2), true);
+  assert.equal(allow('1.1.1.1', t + 3), false, 'רביעי באותו חלון נחסם');
+  assert.equal(allow('2.2.2.2', t + 3), true, 'כתובת אחרת לא נפגעת');
+  assert.equal(allow('1.1.1.1', t + 1500), true, 'אחרי החלון — שוב מותר');
+});
+
+test('הגבלת קצב כללית עוצרת גם הרבה כתובות שונות', () => {
+  const allow = O.makeLimiter({ perIp: 10, global: 2, globalWindowMs: 1000 });
+  assert.equal(allow('a', 1), true);
+  assert.equal(allow('b', 2), true);
+  assert.equal(allow('c', 3), false);
+});
+
+test('שם מנוקה מתווים שיכולים לשבור דף', () => {
+  assert.equal(O.cleanName('  דני   <b>כהן</b> '), 'דני bכהן/b');
+  assert.equal(O.cleanName('x'.repeat(80)).length, 40);
+});
+
+async function rejects(input, field, pattern) {
+  await assert.rejects(O.register(input), (e) => {
+    assert.ok(e instanceof O.OnboardError, `צפוי OnboardError, התקבל ${e}`);
+    assert.equal(e.field, field);
+    if (pattern) assert.match(e.message, pattern);
+    return true;
+  });
+}
+
+const FOLDER = 'https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOpQrStUvWxYz012345';
+const KEY = 'AIzaSyDUMMYDUMMYDUMMYDUMMYDUMMYDUMMY01';
+
+test('הרשמה נכשלת מוקדם, עם השדה הנכון, לפני כל קריאה לרשת', async () => {
+  C.save([]);
+  await rejects({ name: '', folder: FOLDER, key: KEY }, 'name');
+  await rejects({ name: 'דני', folder: 'https://example.com', key: KEY }, 'folder', /תיקייה/);
+  await rejects({ name: 'דני', folder: FOLDER, key: '' }, 'key');
+  await rejects({ name: 'דני', folder: FOLDER, key: 'קצר' }, 'key', /לא נראה כמו מפתח/);
+});
+
+test('המפתח של הבעלים נדחה בהרשמה', async () => {
+  C.save([]);
+  process.env.OWNER_KEY_HASH = C.keyHash(KEY);
+  try {
+    await rejects({ name: 'דני', folder: FOLDER, key: KEY }, 'key', /חשבון הגוגל שלך/);
+  } finally {
+    delete process.env.OWNER_KEY_HASH;
+  }
+});
+
+test('תיקייה מושהית לא נפתחת מחדש דרך דף ההרשמה', async () => {
+  C.save([{ id: 'c-11112222', name: 'רונה', folderId: C.folderIdFrom(FOLDER), secret: 's', geminiKey: 'other', active: false }]);
+  await rejects({ name: 'רונה', folder: FOLDER, key: KEY }, 'folder', /מושהה/);
+});
+
+test('תיקייה רשומה + אותו מפתח = שחזור הסימנייה, בלי רישום כפול', async () => {
+  const c = { id: 'c-33334444', name: 'דני', folderId: C.folderIdFrom(FOLDER), sheetId: 'SHEET', secret: C.newSecret(), geminiKey: KEY, active: true };
+  C.save([c]);
+  const r = await O.register({ name: 'דני', folder: FOLDER, key: ` ${KEY}\n` });
+  assert.equal(r.status, 'recovered');
+  assert.equal(C.list().length, 1);
+  assert.match(r.bookmarklet.text, /^javascript:/);
+  assert.ok(decodeURIComponent(r.bookmarklet.text).includes(C.pendingKeyOf(c.secret)), 'הסימנייה נושאת את המפתח של העמית');
+});
+
+test('השירות מלא — עמית חדש נדחה', async () => {
+  process.env.MAX_COLLEAGUES = '1';
+  C.save([{ id: 'c-55556666', name: 'קיים', folderId: 'OTHERFOLDER123456', secret: 's', geminiKey: 'k', active: true }]);
+  try {
+    await rejects({ name: 'חדש', folder: FOLDER, key: KEY }, 'general', /מלא/);
+  } finally {
+    delete process.env.MAX_COLLEAGUES;
+  }
+});

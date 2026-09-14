@@ -15,10 +15,46 @@
 // =====================================================================
 import 'dotenv/config';
 import http from 'http';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { Readable } from 'stream';
 import * as colleagues from './colleagues.js';
 import { fileMeta, openFile } from './drive.js';
 import { runWorker } from './drive-runner.js';
+import { register, OnboardError, makeLimiter } from './onboard.js';
+
+// ── דף ההרשמה ───────────────────────────────────────────────────────
+//  פתוח רק למי שיש לו את קוד הצוות. בלי קוד, כל מי שמגיע לכתובת
+//  היה יכול להירשם — וכל נרשם צורך ממכסת ה-API של חשבון השירות,
+//  שמשרת גם את בוט הוואטסאפ. בלי JOIN_CODE מוגדר, ההרשמה כבויה.
+const JOIN_CODE = (process.env.JOIN_CODE || '').trim();
+const JOIN_HTML = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'join.html'), 'utf8')
+  .replace('__SA_EMAIL__', process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || '');
+const allowJoin = makeLimiter();
+
+const PAGE_HEADERS = {
+  'Content-Type': 'text/html; charset=utf-8',
+  'Cache-Control': 'no-store',
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+  'Content-Security-Policy': [
+    "default-src 'none'",
+    "style-src 'unsafe-inline' https://fonts.googleapis.com",
+    'font-src https://fonts.gstatic.com',
+    "script-src 'unsafe-inline'",
+    "connect-src 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+    "base-uri 'none'",
+  ].join('; '),
+};
+
+const NO_CODE_PAGE = `<!doctype html><html lang="he" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>הרשמה</title>
+<body style="font-family:system-ui,Arial,sans-serif;max-width:520px;margin:15vh auto;padding:0 20px;line-height:1.7;color:#263238;background:#F3F5F7">
+<h1 style="font-size:24px">הקישור לא שלם</h1><p>לדף ההרשמה נכנסים רק מהקישור המלא שקיבלת בקבוצת הצוות. בקש/י אותו ממפעיל השירות.</p></body></html>`;
+
+const clientIp = (req) => String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '?';
 
 const PORT = Number(process.env.PORT || 3200);
 const PUBLIC = (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
@@ -95,6 +131,46 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ── הרשמה עצמית ──
+  if (url.pathname === '/join') {
+    const codeOk = (c) => !!JOIN_CODE && colleagues.sameSecret(c, JOIN_CODE);
+
+    if (req.method === 'GET') {
+      const ok = codeOk(url.searchParams.get('code'));
+      res.writeHead(ok ? 200 : 403, PAGE_HEADERS);
+      return res.end(ok ? JOIN_HTML : NO_CODE_PAGE);
+    }
+    if (req.method !== 'POST') return json(req, res, 405, { error: 'method' });
+
+    if (!allowJoin(clientIp(req))) {
+      return json(req, res, 429, { ok: false, error: 'יותר מדי ניסיונות. נסה שוב בעוד רבע שעה.' });
+    }
+    if (!String(req.headers['content-type'] || '').startsWith('application/json')) {
+      return json(req, res, 415, { ok: false, error: 'בקשה לא תקינה' });
+    }
+
+    let body;
+    try { body = await readBody(req, 8 * 1024); } catch { return json(req, res, 400, { ok: false, error: 'בקשה לא תקינה' }); }
+    if (!codeOk(body.code)) return json(req, res, 403, { ok: false, error: 'הקישור לא שלם. היכנס מהקישור המלא שקיבלת.' });
+
+    try {
+      const r = await register({ name: body.name, folder: body.folder, key: body.key });
+      console.log(`📝 ${{ created: 'נרשם/ה', recovered: 'שחזר/ה סימנייה', updated: 'החליף/ה מפתח' }[r.status]}: ${r.colleague.name} (${r.colleague.id})`);
+      return json(req, res, 200, {
+        ok: true,
+        status: r.status,
+        name: r.colleague.name,
+        sheetUrl: r.sheetUrl,
+        bookmarklet: r.bookmarklet.text,
+        warning: r.warning || null,
+      });
+    } catch (e) {
+      if (e instanceof OnboardError) return json(req, res, 400, { ok: false, error: e.message, field: e.field });
+      console.error('הרשמה נכשלה:', e.message || e);
+      return json(req, res, 500, { ok: false, error: 'משהו השתבש בצד שלנו. נסה שוב בעוד כמה דקות.' });
+    }
+  }
+
   // השורות הממתינות של עמית אחד — לפי המפתח שבסימנייה שלו
   if (url.pathname === '/pending' || url.pathname === '/done') {
     const c = colleagues.byPendingKey(url.searchParams.get('k'));
@@ -168,6 +244,7 @@ server.listen(PORT, () => {
   console.log(`📁 שירות הדרייב מאזין על ${PORT} · סבב כל ${POLL_MIN} דק' · ${PUBLIC || '(אין כתובת ציבורית)'}`);
   if (!PUBLIC.startsWith('https://')) console.log('⚠️  PUBLIC_BASE_URL חסר או לא https — קישורי הקבלות לא יעבדו');
   if (!process.env.OWNER_KEY_HASH) console.log('⚠️  OWNER_KEY_HASH לא מוגדר — אין הגנה מפני שימוש במפתח שלך');
+  console.log(JOIN_CODE ? '📝 הרשמה עצמית פעילה (/join?code=…)' : '📝 הרשמה עצמית כבויה — אין JOIN_CODE');
   setTimeout(() => cycle().catch((e) => console.error('סבב:', e.message)), 15e3);
   setInterval(() => cycle().catch((e) => console.error('סבב:', e.message)), POLL_MIN * 60e3);
 });

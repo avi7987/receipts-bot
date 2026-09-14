@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>קבלות ישר לטופס — הרשמה</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Hebrew:wght@400;500;600;700&family=Secular+One&display=swap">
+<style>
+  :root {
+    color-scheme: light dark;
+    --ground: #F3F5F7; --paper: #FFFFFF; --ink: #263238; --muted: #5C6972; --rule: #DAE0E6;
+    --link: #1B63C1; --band: #263238; --band-ink: #FFFFFF;
+    --missing: #FFE0B3; --missing-ink: #7A4A06;
+    --done: #D9F0D3; --done-ink: #2E6B34;
+    --err: #FBEAEA; --err-ink: #9B2C2C; --focus: #1B63C1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #111619; --paper: #182025; --ink: #E3E9ED; --muted: #98A5AE; --rule: #2A343B;
+      --link: #7DB2F5; --band: #0B0F12; --band-ink: #E3E9ED;
+      --missing: #56400F; --missing-ink: #FFD48A;
+      --done: #1E3A24; --done-ink: #9FD9A7;
+      --err: #3D2020; --err-ink: #F2B1B1; --focus: #7DB2F5;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: "IBM Plex Sans Hebrew", "Arial Hebrew", "Segoe UI", Arial, sans-serif;
+    font-size: 16px; line-height: 1.65;
+  }
+  .page { max-width: 640px; margin: 0 auto; padding: 36px 20px 64px; display: grid; gap: 30px; }
+  h1, h2, h3 { margin: 0; line-height: 1.25; text-wrap: balance; }
+  p { margin: 0; }
+  a { color: var(--link); text-underline-offset: 3px; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .mono { font-family: "IBM Plex Mono", Consolas, monospace; direction: ltr; unicode-bidi: isolate; }
+
+  header { display: grid; gap: 8px; }
+  .eyebrow { font-size: 13px; color: var(--muted); font-weight: 500; letter-spacing: 0.04em; }
+  h1 { font-family: "Secular One", "IBM Plex Sans Hebrew", Arial, sans-serif; font-weight: 400; font-size: clamp(30px, 6vw, 40px); }
+  .lede { color: var(--muted); font-size: 17px; max-width: 58ch; }
+
+  .card { background: var(--paper); border: 1px solid var(--rule); border-radius: 10px; padding: 20px; display: grid; gap: 16px; }
+  .card > h2 { font-size: 19px; font-weight: 700; }
+
+  ol.prep { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; counter-reset: p; }
+  ol.prep li { counter-increment: p; display: grid; grid-template-columns: 28px 1fr; gap: 12px; }
+  ol.prep li::before {
+    content: counter(p); width: 28px; height: 28px; border-radius: 50%;
+    display: grid; place-items: center; background: var(--band); color: var(--band-ink);
+    font-weight: 600; font-size: 14px;
+  }
+  ol.prep b { font-weight: 600; }
+  .sub { font-size: 14px; color: var(--muted); }
+
+  .copy { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px;
+    border: 1px solid var(--rule); border-radius: 6px; padding: 6px 8px; background: var(--ground); }
+  .copy .mono { flex: 1 1 240px; font-size: 13.5px; overflow-wrap: anywhere; text-align: left; }
+
+  button, .btn {
+    font: inherit; font-weight: 600; border: 0; border-radius: 6px; cursor: pointer;
+    background: var(--band); color: var(--band-ink); padding: 6px 14px; font-size: 14px;
+  }
+  button[disabled] { opacity: 0.6; cursor: progress; }
+
+  form { display: grid; gap: 16px; }
+  .field { display: grid; gap: 5px; }
+  label { font-weight: 600; font-size: 15px; }
+  input[type="text"], input[type="password"], input[type="url"] {
+    font: inherit; font-size: 15px; width: 100%;
+    padding: 9px 11px; border-radius: 6px; border: 1px solid var(--rule);
+    background: var(--ground); color: var(--ink);
+  }
+  input.ltr { direction: ltr; text-align: left; font-family: "IBM Plex Mono", Consolas, monospace; font-size: 14px; }
+  .hint { font-size: 13.5px; color: var(--muted); }
+  .error { font-size: 14px; color: var(--err-ink); background: var(--err); border-radius: 5px; padding: 6px 10px; }
+  .show { display: flex; gap: 6px; align-items: center; font-size: 13.5px; color: var(--muted); font-weight: 400; }
+  .submit { justify-self: start; font-size: 16px; padding: 10px 24px; }
+  .busy { color: var(--muted); font-size: 15px; }
+  .busy::after { content: ""; display: inline-block; width: 1.2em; text-align: start; animation: dots 1.2s steps(4) infinite; }
+  @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+  @media (prefers-reduced-motion: reduce) { .busy::after { animation: none; content: "…"; } }
+
+  .done-head { display: flex; gap: 10px; align-items: center; }
+  .pill { background: var(--done); color: var(--done-ink); font-weight: 600; font-size: 13px; padding: 2px 10px; border-radius: 999px; }
+  .warn { background: var(--missing); color: var(--missing-ink); border-radius: 6px; padding: 8px 12px; font-size: 14.5px; }
+
+  .drag-zone {
+    display: grid; justify-items: center; gap: 10px; text-align: center;
+    border: 2px dashed var(--rule); border-radius: 10px; padding: 20px 14px;
+  }
+  a.bm {
+    display: inline-flex; align-items: center; gap: 8px; text-decoration: none;
+    background: var(--band); color: var(--band-ink); font-weight: 700; font-size: 17px;
+    padding: 10px 22px; border-radius: 8px; cursor: grab;
+  }
+  .or { font-size: 14px; color: var(--muted); }
+  ol.use { margin: 0; padding-inline-start: 20px; display: grid; gap: 4px; }
+  footer { font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <div class="eyebrow">הרשמה · החזרי הוצאות</div>
+    <h1>קבלות ישר לטופס</h1>
+    <p class="lede">מעלים צילום קבלה לתיקייה בדרייב — היא נקראת לבד ונכנסת לגיליון שלך, ובטופס ההוצאות לחיצה אחת ממלאת הכול, כולל הצילום.</p>
+  </header>
+
+  <section class="card" aria-labelledby="prep-title">
+    <h2 id="prep-title">לפני שממלאים</h2>
+    <ol class="prep">
+      <li>
+        <div>
+          <b>תיקייה בדרייב, ובתוכה גיליון ריק.</b>
+          <p class="sub">Google Drive ← חדש ← תיקייה. נכנסים אליה ← חדש ← Google Sheets. לא כותבים בגיליון כלום.</p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <b>שיתוף התיקייה עם השירות, בהרשאת עורך.</b>
+          <p class="sub">קליק ימני על התיקייה ← שיתוף ← מדביקים את הכתובת. אם גוגל מציעה לשלוח הודעה — אפשר לבטל.</p>
+          <div class="copy">
+            <span class="mono" id="sa">__SA_EMAIL__</span>
+            <button type="button" data-copy="sa">העתקה</button>
+          </div>
+        </div>
+      </li>
+      <li>
+        <div>
+          <b>מפתח AI משלך.</b>
+          <p class="sub"><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> ← Create API key. חייבים להיות מחוברים לחשבון הגוגל <b>שלך</b> — הוא קורא עד 20 קבלות ביום, רק שלך.</p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <section class="card" id="form-card" aria-labelledby="form-title">
+    <h2 id="form-title">הרשמה</h2>
+    <form id="join" novalidate>
+      <div class="field">
+        <label for="name">שם</label>
+        <input type="text" id="name" name="name" maxlength="40" autocomplete="name" required>
+        <p class="error" data-for="name" hidden></p>
+      </div>
+      <div class="field">
+        <label for="folder">קישור לתיקייה</label>
+        <input type="url" id="folder" name="folder" class="ltr" placeholder="https://drive.google.com/drive/folders/…" autocomplete="off" required>
+        <p class="hint">פותחים את התיקייה בדרייב ומעתיקים את הכתובת מהדפדפן.</p>
+        <p class="error" data-for="folder" hidden></p>
+      </div>
+      <div class="field">
+        <label for="key">מפתח AI</label>
+        <input type="password" id="key" name="key" class="ltr" autocomplete="off" spellcheck="false" required>
+        <label class="show"><input type="checkbox" id="show-key"> הצג</label>
+        <p class="error" data-for="key" hidden></p>
+      </div>
+      <p class="error" data-for="general" hidden></p>
+      <button type="submit" class="submit" id="submit">הרשמה</button>
+      <p class="busy" id="busy" hidden>בודק את התיקייה, הגיליון והמפתח ומכין את הגיליון — עד חצי דקה</p>
+    </form>
+  </section>
+
+  <section class="card" id="done" aria-labelledby="done-title" hidden>
+    <div class="done-head">
+      <h2 id="done-title">מוכן</h2>
+      <span class="pill" id="done-status">נרשמת</span>
+    </div>
+    <p id="done-text"></p>
+    <p class="warn" id="done-warning" hidden></p>
+
+    <div class="drag-zone">
+      <b>גרור/י את הכפתור לסרגל המועדפים</b>
+      <a class="bm" id="bm" href="#" draggable="true">🧾 מילוי הוצאות</a>
+      <p class="or">לא מצליח לגרור? <button type="button" id="copy-bm">העתק את הסימנייה</button></p>
+      <p class="sub" id="copy-steps" hidden>ב-Edge: <span class="mono">Ctrl+Shift+O</span> ← קליק ימני ← הוסף דף ← שם: מילוי הוצאות ← בכתובת מדביקים. הטקסט ארוך מאוד — זה תקין.</p>
+    </div>
+
+    <div>
+      <b>מכאן</b>
+      <ol class="use">
+        <li>מעלים קבלות לתיקייה. אחרי כמה דקות הן מופיעות ב<a id="sheet-link" href="#" target="_blank" rel="noopener">גיליון שלך</a>.</li>
+        <li>משלימים בגיליון את התאים הכתומים.</li>
+        <li>בטופס ההוצאות מסמנים את תיבת ההצהרה, לוחצים על הסימנייה, ובסוף <b>Save as Draft</b>.</li>
+      </ol>
+    </div>
+    <p class="sub">שמור/י את הדף הזה? לא צריך. אם הסימנייה תלך לאיבוד — נרשמים שוב עם אותה תיקייה ואותו מפתח, ומקבלים אותה מחדש.</p>
+  </section>
+
+  <footer>השירות קורא רק את התיקייה ששיתפת וכותב רק לגיליון שבתוכה. הסימנייה ממלאת ושומרת כטיוטה — ההגשה נשארת בידיים שלך.</footer>
+</div>
+
+<script>
+(function () {
+  const code = new URLSearchParams(location.search).get('code') || '';
+  const $ = (id) => document.getElementById(id);
+
+  async function copyText(text, el) {
+    try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* ננסה בחירה */ }
+    if (!el) return false;
+    const r = document.createRange(); r.selectNodeContents(el);
+    const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+    try { return document.execCommand('copy'); } catch (e) { return false; }
+  }
+
+  document.querySelectorAll('[data-copy]').forEach((b) => {
+    b.addEventListener('click', async () => {
+      const ok = await copyText($(b.dataset.copy).textContent.trim(), $(b.dataset.copy));
+      b.textContent = ok ? 'הועתק' : 'סומן — Ctrl+C';
+      setTimeout(() => { b.textContent = 'העתקה'; }, 2000);
+    });
+  });
+
+  $('show-key').addEventListener('change', (e) => { $('key').type = e.target.checked ? 'text' : 'password'; });
+
+  const errors = () => document.querySelectorAll('.error');
+  function showError(field, message) {
+    const el = document.querySelector(`.error[data-for="${field}"]`) || document.querySelector('.error[data-for="general"]');
+    el.textContent = message; el.hidden = false;
+    const input = $(field); if (input) input.focus();
+  }
+
+  let bookmarklet = '';
+
+  $('join').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errors().forEach((x) => { x.hidden = true; });
+    $('submit').disabled = true; $('busy').hidden = false;
+    try {
+      const res = await fetch('/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, name: $('name').value, folder: $('folder').value, key: $('key').value }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j.ok) { showError(j.field || 'general', j.error || 'משהו השתבש. נסה שוב בעוד דקה.'); return; }
+
+      bookmarklet = j.bookmarklet;
+      $('bm').setAttribute('href', bookmarklet);
+      $('sheet-link').href = j.sheetUrl;
+      $('done-status').textContent = { created: 'נרשמת', recovered: 'כבר רשום/ה', updated: 'המפתח עודכן' }[j.status] || 'מוכן';
+      $('done-text').textContent = {
+        created: `הגיליון שלך הוכן. קבלות שכבר בתיקייה ייקלטו בדקות הקרובות.`,
+        recovered: `התיקייה הזו כבר רשומה. הנה הסימנייה שלך מחדש.`,
+        updated: `המפתח הוחלף. קבלות שחיכו ייקלטו בדקות הקרובות.`,
+      }[j.status] || '';
+      if (j.warning) { $('done-warning').textContent = j.warning; $('done-warning').hidden = false; }
+      $('key').value = '';
+      $('form-card').hidden = true;
+      $('done').hidden = false;
+      $('done').scrollIntoView({ block: 'start' });
+    } catch (err) {
+      showError('general', 'אין חיבור לשירות. בדוק את האינטרנט ונסה שוב.');
+    } finally {
+      $('submit').disabled = false; $('busy').hidden = true;
+    }
+  });
+
+  // לחיצה על הסימנייה בדף הזה תריץ אותה כאן — היא מיועדת לטופס ההוצאות
+  $('bm').addEventListener('click', (e) => {
+    e.preventDefault();
+    alert('את הכפתור גוררים לסרגל המועדפים. לוחצים עליו רק כשטופס ההוצאות פתוח.');
+  });
+
+  $('copy-bm').addEventListener('click', async () => {
+    const ok = await copyText(bookmarklet, null);
+    $('copy-bm').textContent = ok ? 'הועתק' : 'ההעתקה נחסמה — נסה לגרור';
+    $('copy-steps').hidden = false;
+  });
+})();
+</script>
+</body>
+</html>

@@ -52,6 +52,15 @@ else
 fi
 grep -q '^GEMINI_API_KEY=' "$ENV_FILE" && { echo "❌ יש מפתח AI בהגדרות השירות — אסור"; exit 1; }
 
+# קוד הצוות לדף ההרשמה. נוצר פעם אחת; להחלפה — מוחקים את השורה ומריצים שוב.
+if ! grep -q '^JOIN_CODE=' "$ENV_FILE"; then
+  # head קורא מ-urandom ישירות: בצינור הפוך (tr | head) ה-tr מקבל SIGPIPE,
+  # ועם pipefail הסקריפט כולו היה נעצר כאן
+  echo "JOIN_CODE=$(head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \n')" >> "$ENV_FILE"
+  echo "נוצר קוד צוות חדש"
+fi
+JOIN_CODE=$(grep -E '^JOIN_CODE=' "$ENV_FILE" | cut -d= -f2-)
+
 mkdir -p "$DATA"
 sudo chmod 700 "$DATA"
 
@@ -97,8 +106,13 @@ echo "=== מצב ==="
 sleep 8
 sudo docker ps --filter name=receipts-drive --format 'מכולה: {{.Status}}'
 sudo docker logs --tail 5 receipts-drive 2>&1
+healthy=""
 for i in 1 2 3 4 5 6; do
-  if out=$(curl -fsS -m 10 "https://$HOST/" 2>/dev/null); then echo "בריאות: $out"; exit 0; fi
+  if out=$(curl -fsS -m 10 "https://$HOST/" 2>/dev/null); then echo "בריאות: $out"; healthy=1; break; fi
   sleep 10
 done
-echo "⚠️  https://$HOST עוד לא עונה (הנפקת תעודה יכולה לקחת דקה). בדוק שוב: curl https://$HOST/"
+[ -n "$healthy" ] || echo "⚠️  https://$HOST עוד לא עונה (הנפקת תעודה יכולה לקחת דקה). בדוק שוב: curl https://$HOST/"
+
+echo ""
+echo "=== קישור ההרשמה לצוות ==="
+echo "https://$HOST/join?code=$JOIN_CODE"
