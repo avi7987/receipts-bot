@@ -290,12 +290,34 @@ export async function downloadReceiptById(client, id) {
   return validateMedia(await downloadMediaById(client, id));
 }
 
+//  חתימות הבתים הראשונים של הקבצים שאנחנו יודעים לקרוא. וואטסאפ
+//  מצהירה לפעמים application/octet-stream על תמונה רגילה; בלי הזיהוי
+//  הזה הקבלה נדחית כ"לא בשבילנו" ונעלמת בלי הסבר.
+const SIGNATURES = [
+  ['image/jpeg', [0xFF, 0xD8, 0xFF]],
+  ['image/png', [0x89, 0x50, 0x4E, 0x47]],
+  ['application/pdf', [0x25, 0x50, 0x44, 0x46]],
+  ['image/gif', [0x47, 0x49, 0x46]],
+];
+
+export function sniffMime(base64) {
+  const head = Buffer.from(String(base64 || '').slice(0, 32), 'base64');
+  for (const [mime, sig] of SIGNATURES) {
+    if (sig.every((b, i) => head[i] === b)) return mime;
+  }
+  // WEBP: "RIFF" ואז "WEBP" בהיסט 8
+  if (head.slice(0, 4).toString('latin1') === 'RIFF' && head.slice(8, 12).toString('latin1') === 'WEBP') return 'image/webp';
+  return null;
+}
+
 /** בדיקת סוג וגודל. מחזיר null אם זה לא משהו שאפשר לקרוא. */
 function validateMedia(media) {
   if (!media?.data) return null;
 
-  const mimetype = String(media.mimetype || '').split(';')[0].trim().toLowerCase();
-  if (!READABLE_MIME.test(mimetype)) return null;
+  const declared = String(media.mimetype || '').split(';')[0].trim().toLowerCase();
+  // התוכן קובע, לא התווית
+  const mimetype = READABLE_MIME.test(declared) ? declared : sniffMime(media.data);
+  if (!mimetype) return null;
 
   const bytes = Math.floor((media.data.length * 3) / 4);
   if (bytes > MAX_MEDIA_BYTES) {
@@ -508,24 +530,39 @@ export async function downloadMediaById(client, id) {
 
     // ── ההורדה והפענוח ──
     const mockQpl = { addAnnotations() { return this; }, addPoint() { return this; } };
+    const pull = (type) => limit(
+      window.require('WAWebDownloadManager').downloadManager.downloadAndMaybeDecrypt({
+        directPath: m.directPath,
+        encFilehash: m.encFilehash,
+        filehash: m.filehash,
+        mediaKey: m.mediaKey,
+        mediaKeyTimestamp: m.mediaKeyTimestamp,
+        type,
+        signal: new AbortController().signal,
+        downloadQpl: mockQpl,
+      }),
+      60000,
+      'download',
+    );
+
     let raw;
     try {
-      raw = await limit(
-        window.require('WAWebDownloadManager').downloadManager.downloadAndMaybeDecrypt({
-          directPath: m.directPath,
-          encFilehash: m.encFilehash,
-          filehash: m.filehash,
-          mediaKey: m.mediaKey,
-          mediaKeyTimestamp: m.mediaKeyTimestamp,
-          type: m.type,
-          signal: new AbortController().signal,
-          downloadQpl: mockQpl,
-        }),
-        60000,
-        'download',
-      );
+      raw = await pull(m.type);
     } catch (e) {
-      return { error: `הורדה נכשלה: ${e?.message || e}`, diag };
+      //  וואטסאפ מוסרת לפעמים קבלה עם mimetype כללי
+      //  (application/octet-stream), והבדיקה הפנימית שלה דוחה אותה
+      //  כי היא מצפה ל-image/*. אותה הורדה בדיוק עוברת כשמבקשים
+      //  אותה כ"מסמך", שאינו מגביל סוג. הבתים זהים — רק התווית שונה.
+      if (/Unexpected mimetype/i.test(String(e?.message || e))) {
+        diag.mimetypeRetry = true;
+        try {
+          raw = await pull('document');
+        } catch (e2) {
+          return { error: `הורדה נכשלה גם כמסמך: ${e2?.message || e2}`, diag };
+        }
+      } else {
+        return { error: `הורדה נכשלה: ${e?.message || e}`, diag };
+      }
     }
 
     // ── חילוץ הבתים ──
@@ -563,9 +600,24 @@ export async function downloadMediaById(client, id) {
     for (let i = 0; i < bytes.length; i += CHUNK) {
       bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
     }
+      //  סוג הקובץ נקבע לפי התוכן ולא לפי מה שוואטסאפ הצהירה:
+      //  היא מחזירה לפעמים application/octet-stream, ו-Gemini דוחה
+      //  סוג כזה. חתימת הבתים לא משקרת.
+      const sniff = () => {
+        const b = bytes;
+        if (b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF) return 'image/jpeg';
+        if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47) return 'image/png';
+        if (b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46) return 'application/pdf';
+        if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46
+            && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return 'image/webp';
+        if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) return 'image/gif';
+        const declared = String(m.mimetype || '').split(';')[0].trim().toLowerCase();
+        return /^(image\/|application\/pdf)/.test(declared) ? declared : 'image/jpeg';
+      };
+
       return {
         data: btoa(bin),
-        mimetype: m.mimetype || 'image/jpeg',
+        mimetype: sniff(),
         filename: m.filename || null,
       };
     }, id),

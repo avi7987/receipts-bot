@@ -455,3 +455,20 @@ test('כל סוג הוצאה שהכלי בוחר קיים ברשימה של הט
     assert.ok(FORM_EXPENSE_OPTIONS.includes(type), `${cat} → "${type}" לא נמצא בטופס`);
   }
 });
+
+// ── זיהוי סוג קובץ לפי תוכן ─────────────────────────────────────────
+//  וואטסאפ מצהירה לפעמים application/octet-stream על תמונה רגילה,
+//  וזה גרם לקבלה להידחות כ"לא בשבילנו" ולהיעלם בלי הסבר.
+import { sniffMime } from '../src/wa.js';
+
+test('sniffMime מזהה לפי הבתים הראשונים', () => {
+  const b64 = (bytes) => Buffer.from(bytes).toString('base64');
+  assert.equal(sniffMime(b64([0xFF, 0xD8, 0xFF, 0xE0, 0, 0, 0, 0])), 'image/jpeg');
+  assert.equal(sniffMime(b64([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])), 'image/png');
+  assert.equal(sniffMime(b64([0x25, 0x50, 0x44, 0x46, 0x2D, 0x31, 0x2E, 0x34])), 'application/pdf');
+  assert.equal(sniffMime(b64([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0, 0])), 'image/gif');
+  assert.equal(sniffMime(b64([0x52, 0x49, 0x46, 0x46, 1, 2, 3, 4, 0x57, 0x45, 0x42, 0x50])), 'image/webp');
+  assert.equal(sniffMime(b64([1, 2, 3, 4, 5, 6, 7, 8])), null, 'משהו אחר — לא מנחשים');
+  assert.equal(sniffMime(''), null);
+  assert.equal(sniffMime(null), null);
+});
