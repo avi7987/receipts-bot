@@ -638,6 +638,38 @@ http.createServer(async (req, res) => {
 process.on('unhandledRejection', (e) => console.error('unhandledRejection:', e));
 process.on('uncaughtException', (e) => console.error('uncaughtException:', e));
 
+// ── סגירה מסודרת ────────────────────────────────────────────────────
+//
+//  החיבור לוואטסאפ נשמר בפרופיל של דפדפן. כשהתהליך נהרג באמצע —
+//  אתחול של השרת, docker stop — הפרופיל נשאר פתוח למחצה, והשחזור
+//  בעלייה הבאה נכשל: הבוט חוזר לבקש QR. זה קרה באתחול של השרת,
+//  ואחריו הוא היה מנותק יממה בלי שאיש ידע.
+//
+//  כאן סוגרים את הדפדפן לפני היציאה, כדי שהפרופיל ייכתב עד הסוף.
+let shuttingDown = false;
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.on(sig, async () => {
+    if (shuttingDown) return;      // דוקר שולח SIGTERM ואז SIGKILL
+    shuttingDown = true;
+    console.log(`⏹️  ${sig} — סוגר את החיבור לוואטסאפ...`);
+
+    // דוקר ממתין 10 שניות לפני הרג. יוצאים לפני, גם אם הסגירה נתקעה.
+    const giveUp = setTimeout(() => {
+      console.log('   הסגירה מתארכת — יוצא בכל זאת');
+      process.exit(0);
+    }, 8000);
+
+    try {
+      await global.__session?.client?.destroy();
+      console.log('   ✅ נסגר כמו שצריך');
+    } catch (e) {
+      console.error('   סגירה נכשלה:', e.message || e);
+    }
+    clearTimeout(giveUp);
+    process.exit(0);
+  });
+}
+
 boot().catch((e) => {
   console.error('❌ עלייה נכשלה:', e);
   process.exit(1);
