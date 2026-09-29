@@ -221,8 +221,19 @@ async function askFollowUp(session, replyTo, data, row) {
 
 async function ask(session, replyTo, ctx) {
   const q = stepQuestion(ctx.steps[0], ctx.category, ctx.guests);
-  if (!q) return;
-  await (replyTo ? session.reply(replyTo, q) : sendToGroup(session, q));
+  if (!q) {
+    console.error(`⚠️  אין שאלה מוגדרת לשלב "${ctx.steps[0]}" (${ctx.category}) — שורה ${ctx.row}`);
+    return;
+  }
+
+  //  שליחת השאלה לא תועדה בכלל, ולכן כששאלה לא הגיעה לא היה שום
+  //  עקבות לחפש. עכשיו רואים גם שנשלחה וגם כשנכשלה.
+  const sent = await (replyTo ? session.reply(replyTo, q) : sendToGroup(session, q));
+  if (sent) {
+    console.log(`❓ נשאלה שאלה (${ctx.steps[0]}) על שורה ${ctx.row}`);
+  } else {
+    console.error(`⚠️  שליחת השאלה (${ctx.steps[0]}) על שורה ${ctx.row} נכשלה — מצב החיבור: ${session.state}`);
+  }
   ctx.at = Date.now();     // כל שאלה מאריכה את החלון
 }
 
