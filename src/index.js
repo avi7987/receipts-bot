@@ -70,6 +70,12 @@ async function handleReceipt(session, job) {
   // רשומה שנסגרה — טופלה עד הסוף, אין מה לעשות איתה שוב.
   // רשומה פתוחה (נכשלה או ממתינה) כן נכנסת שוב, וזה כל העניין.
   if (ledger.settled(msgId)) return;
+
+  //  ניסיון חוזר לא מדווח שוב על אותו כישלון. ההודעה הראשונה נשלחה
+  //  כבר, ודיווח על מה שתקוע מגיע בנפרד — אחרת כל ניסיון מייצר
+  //  עוד הודעה בקבוצה.
+  const retryOfFailure = (ledger.get(msgId)?.attempts || 0) > 0;
+  if (retryOfFailure) job.quiet = true;
   ledger.noticed(msgId, { chat: job.chat || session.groupId || null, at: job.at || null });
 
   // ── הורדה ──
@@ -119,7 +125,7 @@ async function handleReceipt(session, job) {
     ledger.failed(msgId, short(e.message) || 'קריאת הקבלה נכשלה', { extra: { hash } });
     const why = e.message === 'missing-gemini-key' ? 'missing-gemini-key' : 'read-failed';
     console.error('קריאת הקבלה נכשלה:', e.message || e);
-    await finish(errorMessage(why, why === 'read-failed' ? short(e.message) : null));
+    if (!retryOfFailure) await finish(errorMessage(why, why === 'read-failed' ? short(e.message) : null));
     return;
   }
 
@@ -172,7 +178,7 @@ async function handleReceipt(session, job) {
     const why = e.message === 'sheets-not-configured' ? 'sheets-not-configured' : 'sheet-failed';
     // נשארת פתוחה: התמונה כבר נשמרה, וברגע שהגיליון יחזור היא תיכנס לבד
     ledger.failed(msgId, short(e.message) || 'כתיבה לגיליון נכשלה', { extra: { hash, label: labelOf(data) } });
-    await finish(errorMessage(why, why === 'sheet-failed' ? short(e.message) : null));
+    if (!retryOfFailure) await finish(errorMessage(why, why === 'sheet-failed' ? short(e.message) : null));
     return;
   }
 
@@ -361,8 +367,15 @@ async function pollGroup(session) {
   const items = await scanGroupMedia(session.client, session.groupId, 15);
   if (!items.length) return;
 
+  const now = Date.now();
   const fresh = items.filter((x) => {
-    if (ledger.settled(x.id)) return false;
+    const e = ledger.get(x.id);
+    if (e && ledger.isSettled(e.status)) return false;
+    //  מכבדים את לוח הזמנים של הניסיון החוזר. בלי זה הסורק רץ כל
+    //  דקה ומנסה מחדש בלי קשר להשהיה שהיומן קבע — מה שגרם ל-150
+    //  ניסיונות בשלוש שעות, שרף את מכסת ה-AI היומית, והציף את
+    //  הקבוצה בהודעות שגיאה.
+    if (e?.retryAt && e.retryAt > now) return false;
     const ageHours = x.t ? (Date.now() - x.t * 1000) / 3600e3 : 0;
     return ageHours <= CATCHUP_HOURS;
   });
@@ -425,7 +438,9 @@ async function reportOpen(session) {
   if (session.state !== 'ready') return;
 
   const openOnes = ledger.open();
-  const fingerprint = openOnes.map((e) => `${e.id}:${e.status}:${e.attempts || 0}`).sort().join('|');
+  //  בלי מספר הניסיונות: הוא גדל בכל ניסיון חוזר, וכך כל ניסיון
+  //  היה נחשב "שינוי מצב" ומייצר עוד הודעה על אותה קבלה תקועה.
+  const fingerprint = openOnes.map((e) => `${e.id}:${e.status}`).sort().join('|');
   if (fingerprint === lastOpenReport) return;
   lastOpenReport = fingerprint;
 
