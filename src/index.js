@@ -11,6 +11,7 @@
 import 'dotenv/config';
 import http from 'http';
 import fs from 'fs';
+import path from 'path';
 import crypto from 'crypto';
 import {
   createSession, downloadReceipt, downloadReceiptById,
@@ -207,7 +208,39 @@ async function handleReceipt(session, job) {
 //  אי אפשר לקרוא מהתמונה. שואלים מיד, כשאתה עוד זוכר, ושומרים את
 //  התשובה לשורה. אם לא תענה — התא נשאר ריק והכלי ימלא TBD.
 let awaiting = null;   // { row, category, guests, steps, answers, at }
-const ANSWER_WINDOW_MIN = 90;
+
+//  השאלה נשאלת מתי שהקבלה נקלטת — לפעמים באמצע הלילה, כשהסורק
+//  מוצא אותה. תשובה שמגיעה בבוקר חייבת להתקבל. חלון של 90 דקות
+//  זרק תשובה שניתנה תשע שעות אחרי השאלה, בלי לומר דבר.
+const ANSWER_WINDOW_MIN = Number(process.env.ANSWER_WINDOW_MIN || 7 * 24 * 60);
+
+//  ומכיוון שהשאלה יכולה להמתין ימים — היא נשמרת לדיסק. קודם היא
+//  ישבה בזיכרון בלבד, וכל פריסה או אתחול מחקו אותה בשקט.
+const AWAITING_FILE = path.join(
+  path.dirname(path.resolve(process.env.STATE_PATH || './.state/processed.json')),
+  'awaiting.json',
+);
+
+function saveAwaiting() {
+  try {
+    if (!awaiting) { fs.rmSync(AWAITING_FILE, { force: true }); return; }
+    const { replyTo, ...rest } = awaiting;   // אובייקט ההודעה אינו ניתן לשמירה
+    fs.mkdirSync(path.dirname(AWAITING_FILE), { recursive: true });
+    fs.writeFileSync(AWAITING_FILE, JSON.stringify(rest));
+  } catch (e) {
+    console.error('⚠️  שמירת השאלה הפתוחה נכשלה:', e.message || e);
+  }
+}
+
+function loadAwaiting() {
+  try {
+    const j = JSON.parse(fs.readFileSync(AWAITING_FILE, 'utf8'));
+    if (j?.row && Array.isArray(j.steps) && j.steps.length) {
+      awaiting = j;
+      console.log(`❓ שאלה פתוחה משוחזרת: ${j.steps[0]} על שורה ${j.row}`);
+    }
+  } catch { /* אין שאלה פתוחה */ }
+}
 
 async function askFollowUp(session, replyTo, data, row) {
   const steps = followUpSteps(data.category);
@@ -222,6 +255,7 @@ async function askFollowUp(session, replyTo, data, row) {
     at: Date.now(),
     replyTo,
   };
+  saveAwaiting();
   await ask(session, replyTo, awaiting);
 }
 
@@ -247,7 +281,15 @@ async function ask(session, replyTo, ctx) {
 async function onText(session, msg, text) {
   if (!awaiting) return;
 
-  if ((Date.now() - awaiting.at) / 60000 > ANSWER_WINDOW_MIN) { awaiting = null; return; }
+  //  תשובה שאיחרה לא נבלעת בשקט. קודם היא נזרקה בלי מילה, והמשתמש
+  //  נשאר לחשוב שהוא ענה והבוט התעלם.
+  if ((Date.now() - awaiting.at) / 60000 > ANSWER_WINDOW_MIN) {
+    const old = awaiting;
+    awaiting = null;
+    saveAwaiting();
+    await session.reply(msg, `⌛ השאלה על שורה ${old.row} כבר לא פתוחה. אפשר להשלים את החסר ישירות בגיליון.`);
+    return;
+  }
 
   const answer = text.trim().slice(0, 300);
   if (!answer) return;
@@ -263,6 +305,7 @@ async function onText(session, msg, text) {
       await session.reply(msg, '🤔 לא הבנתי. ענה *כן* או *לא*.');
       ctx.at = Date.now();
       awaiting = ctx;
+      saveAwaiting();
       return;
     }
     ctx.answers.isAltCar = yes;
@@ -280,6 +323,7 @@ async function onText(session, msg, text) {
       await session.reply(msg, '🔢 צריך 7 או 8 ספרות. נסה שוב.');
       ctx.at = Date.now();
       awaiting = ctx;
+      saveAwaiting();
       return;
     }
     ctx.answers.altCar = num;
@@ -290,11 +334,13 @@ async function onText(session, msg, text) {
   // עוד שאלה בתור — שואלים ולא כותבים עדיין
   if (ctx.steps.length) {
     awaiting = ctx;
+    saveAwaiting();
     await ask(session, msg, ctx);
     return;
   }
 
   awaiting = null;
+  saveAwaiting();
 
   // אם לא זוהה מספר סועדים בקבלה — סופרים מהשמות שכתבת
   let guests = ctx.guests;
@@ -509,6 +555,7 @@ async function boot() {
   // הסורק מתחיל לרוץ ברגע שהחיבור מוכן
   session.client.on('ready', () => {
     setTimeout(() => pollGroup(session).catch(() => {}), 8000);   // סריקה ראשונה מיד
+    loadAwaiting();     // שאלה שנשאלה לפני הפריסה ועוד לא נענתה
     startPolling(session);
   });
 

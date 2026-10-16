@@ -393,7 +393,9 @@ export async function sendToGroup(session, text) {
   if (!text || session.state !== 'ready' || !session.groupId) return null;
   try {
     remember(session._sentBodies, text);
-    const sent = await session.client.sendMessage(session.groupId, text);
+    //  הספרייה מחזירה לפעמים ערך ריק גם כששליחה הצליחה. בלי ה-??
+    //  שליחה תקינה נראתה ככישלון ביומן ושלחה אותי לחפש באג שלא קיים.
+    const sent = (await session.client.sendMessage(session.groupId, text)) ?? true;
     const id = msgIdOf(sent);
     if (id) {
       session._sentIds.add(id);
