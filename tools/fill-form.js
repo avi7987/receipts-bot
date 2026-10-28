@@ -241,10 +241,32 @@
 
       input.dispatchEvent(new Event('change', { bubbles: true }));
       input.dispatchEvent(new Event('input', { bubbles: true }));
+
+      //  ServiceNow בנוי על AngularJS, והרכיב מאזין דרכו ולא
+      //  לאירוע DOM רגיל. בלי הטריגר הזה הקובץ יושב בשדה, הרכיב
+      //  לא יודע עליו, ואזור הצרופות נשאר ריק — והטופס מסרב
+      //  להיסגר כי צרופה היא שדה חובה.
+      try {
+        if (window.angular) {
+          const el = window.angular.element(input);
+          el.triggerHandler('change');
+          const scope = el.scope?.();
+          if (scope) {
+            for (const fn of ['onFileSelect', 'fileSelected', 'addFiles', 'uploadFiles']) {
+              if (typeof scope[fn] === 'function') { try { scope[fn]([...input.files]); } catch { /* הבא */ } }
+            }
+            scope.$applyAsync?.();
+          }
+        }
+      } catch { /* לא אנגולר — ממשיכים */ }
+
+      try { input.onchange?.({ target: input }); } catch { /* אין מאזין ישיר */ }
+
       // חלק מהרכיבים מקשיבים לגרירה ולא לשינוי
       const drop = new DragEvent('drop', { bubbles: true, cancelable: true });
       Object.defineProperty(drop, 'dataTransfer', { value: dt });
       input.dispatchEvent(drop);
+      (input.closest('.sc-attachment, .attachment, form, div') || input).dispatchEvent(drop);
 
       //  אישור ויזואלי אם הרכיב מציג משהו. אבל הוא לא תנאי להצלחה:
       //  יש רכיבים שלא מציגים דבר עד השמירה, וההתעקשות על החיווי
@@ -257,13 +279,17 @@
       }, { timeout: 8000, every: 300 });
 
       if (shown) return null;
-      log(`   הקובץ הוצב (${kb}KB) אך הרכיב לא הציג אישור — ממשיך`, '#78909c');
+      //  לא אושר — ממשיכים לשדה הקובץ הבא בחלון. קודם עצרנו כאן
+      //  על השדה הראשון, וכשהוא לא היה הנכון הצרופה אבדה.
+      log(`   שדה קובץ ${candidates.indexOf(input) + 1}/${candidates.length}: הוצב בלי אישור — מנסה את הבא`, '#78909c');
+    }
+
+    if (placed) {
+      log(`   הקובץ (${kb}KB) הוצב אך הרכיב לא הציג אישור — ממשיך בכל זאת`, '#78909c');
       return null;
     }
 
-    return placed
-      ? `הקובץ (${kb}KB) הוצב אך נדחה על ידי הרכיב`
-      : `לא הצלחתי להציב את הקובץ (${kb}KB) — נמצאו ${candidates.length} שדות קובץ בחלון`;
+    return `לא הצלחתי להציב את הקובץ (${kb}KB) — נמצאו ${candidates.length} שדות קובץ בחלון`;
   }
 
   // ── כפתורים ────────────────────────────────────────────────────────
@@ -285,7 +311,7 @@
 
   const bar = document.createElement('div');
   bar.setAttribute('style', 'background:#263238;color:#fff;padding:10px 14px;display:flex;gap:8px;align-items:center;border-radius:7px 7px 0 0');
-  bar.innerHTML = '<b style="flex:1">מילוי טופס הוצאות <span style="opacity:.6;font-weight:400">v14</span>'
+  bar.innerHTML = '<b style="flex:1">מילוי טופס הוצאות <span style="opacity:.6;font-weight:400">v15</span>'
     + (EMBEDDED.startsWith('[') ? ' <span style="background:#6a1b9a;padding:1px 7px;border-radius:4px;font-weight:400">בדיקה</span>' : '')
     + '</b>';
 
