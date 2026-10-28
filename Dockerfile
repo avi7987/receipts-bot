@@ -22,6 +22,8 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --omit=dev
 COPY src ./src
+# מקור הסימנייה — הדף שמגיש אותה בונה אותה מהקובץ הזה
+COPY tools/fill-form.js ./tools/fill-form.js
 
 # עמוד הבריאות מאזין על PORT שהענן מקצה
 EXPOSE 3100

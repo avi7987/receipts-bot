@@ -22,6 +22,7 @@ import { appendRow, rowFrom, sheetUrl, sheetsConfigured, stampChecked, findRow, 
 import { saveReceipt, storageMode, saveForServing, resolveServed, servingConfigured } from './storage.js';
 
 import * as ledger from './ledger.js';
+import { buildBookmarklet } from './bookmarklet.js';
 import {
   receiptMessage, notReceiptMessage, errorMessage, heDate, money,
   followUpSteps, stepQuestion, answerSavedMessage, parseYesNo, carNumber,
@@ -624,6 +625,62 @@ http.createServer(async (req, res) => {
   }
 
   // הקבלות שממתינות להזנה — בשביל הכלי שממלא את הטופס
+  //  הסימנייה, כדף להתקנה: גוררים את הכפתור לסרגל המועדפים. העתקה
+  //  של קובץ באורך 65 אלף תווים מתוך עורך טקסט היא לא דרך סבירה.
+  if (url.pathname === '/bm') {
+    if (!PENDING_KEY || url.searchParams.get('k') !== PENDING_KEY) {
+      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('אין גישה');
+      return;
+    }
+    let built;
+    try {
+      built = buildBookmarklet({ api: process.env.PUBLIC_BASE_URL || '', key: PENDING_KEY });
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end(`בניית הסימנייה נכשלה: ${e.message}`);
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(`<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>מילוי טופס הוצאות ${built.version}</title>
+<style>
+ body{margin:0;background:#F3F5F7;color:#263238;font:16px/1.65 "Segoe UI",Arial,sans-serif;display:grid;place-items:center;min-height:100vh}
+ .card{background:#fff;border:1px solid #DAE0E6;border-radius:12px;padding:28px;max-width:560px;margin:20px;display:grid;gap:18px}
+ h1{margin:0;font-size:22px}
+ .zone{border:2px dashed #DAE0E6;border-radius:10px;padding:22px;text-align:center;display:grid;gap:12px;justify-items:center}
+ a.bm{background:#263238;color:#fff;font-weight:700;font-size:17px;padding:11px 24px;border-radius:8px;text-decoration:none;cursor:grab}
+ ol{margin:0;padding-inline-start:20px}li{margin:4px 0}
+ button{font:inherit;font-weight:600;background:#263238;color:#fff;border:0;border-radius:6px;padding:7px 16px;cursor:pointer}
+ .muted{color:#5C6972;font-size:14px}
+</style></head><body><div class="card">
+<h1>מילוי טופס הוצאות <span class="muted">${built.version}</span></h1>
+<div class="zone">
+  <b>גרור את הכפתור לסרגל המועדפים</b>
+  <a class="bm" id="bm" href="${built.text}" draggable="true">🧾 מילוי הוצאות</a>
+  <span class="muted">כבר יש לך סימנייה כזו? גרור את זו למקום ריק ומחק את הישנה.</span>
+</div>
+<div>
+  <b>לא מצליח לגרור?</b>
+  <ol>
+    <li>לחץ <button id="copy">העתק</button></li>
+    <li><code>Ctrl+Shift+O</code> ← קליק ימני על הסימנייה ← עריכה</li>
+    <li>בשדה הכתובת: <code>Ctrl+A</code> ואז <code>Ctrl+V</code></li>
+  </ol>
+</div>
+<span class="muted">לחיצה על הכפתור כאן לא תעשה כלום — הוא נועד לרוץ על טופס ההוצאות.</span>
+</div>
+<script>
+document.getElementById('bm').addEventListener('click',function(e){e.preventDefault();alert('גרור אותי לסרגל המועדפים. ללחוץ עליי רק כשטופס ההוצאות פתוח.');});
+document.getElementById('copy').addEventListener('click',async function(){
+  try{await navigator.clipboard.writeText(document.getElementById('bm').getAttribute('href'));this.textContent='הועתק';}
+  catch(err){this.textContent='ההעתקה נחסמה — גרור במקום';}
+  setTimeout(()=>{this.textContent='העתק';},2500);
+});
+</script></body></html>`);
+    return;
+  }
+
   if (url.pathname === '/pending') {
     if (!PENDING_KEY || url.searchParams.get('k') !== PENDING_KEY) {
       res.writeHead(403, cors(req, { 'Content-Type': 'application/json; charset=utf-8' }));
