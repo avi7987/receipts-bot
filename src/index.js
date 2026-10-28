@@ -635,7 +635,10 @@ http.createServer(async (req, res) => {
     }
     let built;
     try {
-      built = buildBookmarklet({ api: process.env.PUBLIC_BASE_URL || '', key: PENDING_KEY });
+      //  ?diag=1 מגיש כלי אבחון לרכיב הצרופות במקום את המילוי עצמו
+      built = url.searchParams.get('diag')
+        ? buildBookmarklet({ api: process.env.PUBLIC_BASE_URL || '', key: PENDING_KEY, source: 'inspect-attach.js', version: 'אבחון' })
+        : buildBookmarklet({ api: process.env.PUBLIC_BASE_URL || '', key: PENDING_KEY });
     } catch (e) {
       res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end(`בניית הסימנייה נכשלה: ${e.message}`);
