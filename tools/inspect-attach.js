@@ -63,13 +63,15 @@
     } catch (e) { say(`  קריאת הסקופ נכשלה: ${e.message}`); }
   }
 
-  // ── ניסיון הצבה, עם האזנה לרשת ──
+  // ── האזנה לרשת, לפני כל פעולה ──
   const calls = [];
   const origFetch = window.fetch;
   const origOpen = XMLHttpRequest.prototype.open;
   window.fetch = function (...a) { calls.push(`fetch ${String(a[0]).slice(0, 80)}`); return origFetch.apply(this, a); };
   XMLHttpRequest.prototype.open = function (m, u, ...a) { calls.push(`xhr ${m} ${String(u).slice(0, 80)}`); return origOpen.call(this, m, u, ...a); };
 
+  //  מבצע בדיוק את הרצף של המילוי: טריגר אחד, המתנה להעלאה, ואז
+  //  עדכון שדה הטופס — כדי לבדוק אם זה מה שחסר, בלי להריץ מילוי שלם.
   if (inputs.length) {
     const input = inputs[0];
     const before = (root.innerText || '').length;
@@ -81,13 +83,39 @@
       say(`הצבת קובץ בשדה 1: ${input.files.length ? 'הצליחה' : 'נדחתה'}`);
     } catch (e) { say(`הצבת קובץ נכשלה: ${e.message}`); }
 
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-    try { window.angular && window.angular.element(input).triggerHandler('change'); } catch { /* — */ }
+    const was = calls.length;
+    input.dispatchEvent(new Event('change', { bubbles: true }));     // טריגר אחד בלבד
+    for (let i = 0; i < 15 && calls.length === was; i++) await new Promise((r) => setTimeout(r, 200));
+    say(`העלאה אחרי אירוע רגיל: ${calls.length > was ? 'יצאה' : 'לא יצאה'}`);
+
+    await new Promise((r) => setTimeout(r, 2500));
+
+    const sc = window.angular ? window.angular.element(input).scope?.() : null;
+    try {
+      const has = typeof sc?.updateAttachmentBackendValues === 'function';
+      say(`updateAttachmentBackendValues קיימת: ${has}`);
+      if (has) { sc.updateAttachmentBackendValues(); sc.$applyAsync?.(); }
+    } catch (e) { say(`עדכון שדה הטופס נכשל: ${e.message}`); }
+
     await new Promise((r) => setTimeout(r, 2500));
 
     const after = (root.innerText || '').length;
     say(`אורך הטקסט בחלון: ${before} → ${after} ${after !== before ? '(השתנה)' : '(לא השתנה)'}`);
     say(`שם הקובץ מופיע בחלון: ${(root.innerText || '').includes('בדיקה')}`);
+
+    //  הבדיקה האמיתית: מה הטופס חושב על שדה הצרופה
+    try {
+      const gf = sc?.gForm;
+      if (gf?.getValue) {
+        for (const f of ['attachment', 'attachments', 'u_attachment']) {
+          const v = gf.getValue(f);
+          if (v !== undefined && v !== null) say(`gForm.getValue("${f}") = ${String(v).slice(0, 60) || '(ריק)'}`);
+        }
+      } else { say('אין gForm בסקופ'); }
+      if (typeof sc?.validateAttachment === 'function') {
+        say(`validateAttachment() = ${JSON.stringify(sc.validateAttachment())}`);
+      }
+    } catch (e) { say(`בדיקת שדה הצרופה נכשלה: ${e.message}`); }
   }
 
   window.fetch = origFetch;
