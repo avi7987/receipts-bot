@@ -230,11 +230,14 @@
     const before = norm(root.textContent);
     const shortName = name.replace(/\.[^.]+$/, '').slice(0, 12);
 
+    let placed = false;
     for (const input of candidates) {
       const file = new File([blob], name, { type: blob.type || 'image/jpeg' });
       const dt = new DataTransfer();
       dt.items.add(file);
       try { input.files = dt.files; } catch { continue; }
+      if (!input.files?.length) continue;      // הרכיב דחה את ההצבה
+      placed = true;
 
       input.dispatchEvent(new Event('change', { bubbles: true }));
       input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -243,17 +246,24 @@
       Object.defineProperty(drop, 'dataTransfer', { value: dt });
       input.dispatchEvent(drop);
 
-      // אימות: משהו בחלון השתנה — שם הקובץ, גודלו, או שורת קובץ חדשה
-      const ok = await waitFor(() => {
+      //  אישור ויזואלי אם הרכיב מציג משהו. אבל הוא לא תנאי להצלחה:
+      //  יש רכיבים שלא מציגים דבר עד השמירה, וההתעקשות על החיווי
+      //  הזה עצרה הרצה שבה הקובץ כן נקלט. המבחן האמיתי הוא אם החלון
+      //  נסגר אחרי Add — וזה נבדק ממילא מיד אחר כך.
+      const shown = await waitFor(() => {
         const now = norm(root.textContent);
         return now !== before
           && (now.includes(shortName) || now.includes(`${kb}`) || /\.(jpe?g|png|pdf)/i.test(now));
-      }, { timeout: 6000, every: 300 });
+      }, { timeout: 8000, every: 300 });
 
-      if (ok) return null;
+      if (shown) return null;
+      log(`   הקובץ הוצב (${kb}KB) אך הרכיב לא הציג אישור — ממשיך`, '#78909c');
+      return null;
     }
 
-    return `הקובץ (${kb}KB) לא נקלט ברכיב ההעלאה`;
+    return placed
+      ? `הקובץ (${kb}KB) הוצב אך נדחה על ידי הרכיב`
+      : `לא הצלחתי להציב את הקובץ (${kb}KB) — נמצאו ${candidates.length} שדות קובץ בחלון`;
   }
 
   // ── כפתורים ────────────────────────────────────────────────────────
@@ -275,7 +285,7 @@
 
   const bar = document.createElement('div');
   bar.setAttribute('style', 'background:#263238;color:#fff;padding:10px 14px;display:flex;gap:8px;align-items:center;border-radius:7px 7px 0 0');
-  bar.innerHTML = '<b style="flex:1">מילוי טופס הוצאות <span style="opacity:.6;font-weight:400">v13</span>'
+  bar.innerHTML = '<b style="flex:1">מילוי טופס הוצאות <span style="opacity:.6;font-weight:400">v14</span>'
     + (EMBEDDED.startsWith('[') ? ' <span style="background:#6a1b9a;padding:1px 7px;border-radius:4px;font-weight:400">בדיקה</span>' : '')
     + '</b>';
 
