@@ -230,67 +230,71 @@
     const before = norm(root.textContent);
     const shortName = name.replace(/\.[^.]+$/, '').slice(0, 12);
 
-    let placed = false;
-    for (const input of candidates) {
-      const file = new File([blob], name, { type: blob.type || 'image/jpeg' });
-      const dt = new DataTransfer();
-      dt.items.add(file);
-      try { input.files = dt.files; } catch { continue; }
-      if (!input.files?.length) continue;      // הרכיב דחה את ההצבה
-      placed = true;
+    //  מה שקורה כאן נקבע לפי אבחון בדף עצמו, לא לפי ניחוש:
+    //   · שדות הקובץ מוסתרים, ושניהם תקינים לשימוש
+    //   · הצבה + אירוע change אכן מפעילה POST ngk_attachments
+    //   · אבל הטופס לא יודע על הצרופה עד שקוראים
+    //     updateAttachmentBackendValues שבסקופ — וזה מה שחסר היה
+    //   · ולכן אסור לירות שני טריגרים: כל אחד מעלה את הקובץ בנפרד
+    const scopeOf = (el) => { try { return window.angular?.element(el).scope?.() || null; } catch { return null; } };
 
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-      input.dispatchEvent(new Event('input', { bubbles: true }));
+    let uploads = 0;
+    const origOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function (m, u, ...rest) {
+      if (/attachment/i.test(String(u))) uploads++;
+      return origOpen.call(this, m, u, ...rest);
+    };
 
-      //  ServiceNow בנוי על AngularJS, והרכיב מאזין דרכו ולא
-      //  לאירוע DOM רגיל. בלי הטריגר הזה הקובץ יושב בשדה, הרכיב
-      //  לא יודע עליו, ואזור הצרופות נשאר ריק — והטופס מסרב
-      //  להיסגר כי צרופה היא שדה חובה.
-      try {
-        if (window.angular) {
-          const el = window.angular.element(input);
-          el.triggerHandler('change');
-          const scope = el.scope?.();
-          if (scope) {
-            for (const fn of ['onFileSelect', 'fileSelected', 'addFiles', 'uploadFiles']) {
-              if (typeof scope[fn] === 'function') { try { scope[fn]([...input.files]); } catch { /* הבא */ } }
-            }
-            scope.$applyAsync?.();
+    try {
+      for (const input of candidates) {
+        const file = new File([blob], name, { type: blob.type || 'image/jpeg' });
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        try { input.files = dt.files; } catch { continue; }
+        if (!input.files?.length) continue;
+
+        const was = uploads;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        await waitFor(() => uploads > was, { timeout: 2500, every: 200 });
+
+        // רק אם האירוע הרגיל לא הפעיל כלום — מנסים דרך אנגולר
+        if (uploads === was) {
+          const sc = scopeOf(input);
+          try { window.angular?.element(input).triggerHandler('change'); } catch { /* הבא */ }
+          if (uploads === was && typeof sc?.onAttachmentSelect === 'function') {
+            try { sc.onAttachmentSelect({ target: input, files: input.files }); } catch { /* הבא */ }
           }
+          await waitFor(() => uploads > was, { timeout: 2500, every: 200 });
         }
-      } catch { /* לא אנגולר — ממשיכים */ }
 
-      try { input.onchange?.({ target: input }); } catch { /* אין מאזין ישיר */ }
+        if (uploads === was) continue;      // השדה הזה לא מחובר לרכיב
 
-      // חלק מהרכיבים מקשיבים לגרירה ולא לשינוי
-      const drop = new DragEvent('drop', { bubbles: true, cancelable: true });
-      Object.defineProperty(drop, 'dataTransfer', { value: dt });
-      input.dispatchEvent(drop);
-      (input.closest('.sc-attachment, .attachment, form, div') || input).dispatchEvent(drop);
+        // ההעלאה יצאה — נותנים לה להסתיים ואז מעדכנים את שדה הטופס
+        await sleep(2500);
+        const sc = scopeOf(input);
+        try {
+          sc?.updateAttachmentBackendValues?.();
+          sc?.$applyAsync?.();
+        } catch (e) {
+          log(`   עדכון שדה הצרופה נכשל: ${e.message}`, '#ef6c00');
+        }
 
-      //  אישור ויזואלי אם הרכיב מציג משהו. אבל הוא לא תנאי להצלחה:
-      //  יש רכיבים שלא מציגים דבר עד השמירה, וההתעקשות על החיווי
-      //  הזה עצרה הרצה שבה הקובץ כן נקלט. המבחן האמיתי הוא אם החלון
-      //  נסגר אחרי Add — וזה נבדק ממילא מיד אחר כך.
-      const shown = await waitFor(() => {
-        const now = norm(root.textContent);
-        return now !== before
-          && (now.includes(shortName) || now.includes(`${kb}`) || /\.(jpe?g|png|pdf)/i.test(now));
-      }, { timeout: 8000, every: 300 });
+        const shown = await waitFor(() => {
+          const now = norm(root.textContent);
+          return now !== before && (now.includes(shortName) || /\.(jpe?g|png|pdf)/i.test(now));
+        }, { timeout: 5000, every: 300 });
 
-      if (shown) return null;
-      //  לא אושר — ממשיכים לשדה הקובץ הבא בחלון. קודם עצרנו כאן
-      //  על השדה הראשון, וכשהוא לא היה הנכון הצרופה אבדה.
-      log(`   שדה קובץ ${candidates.indexOf(input) + 1}/${candidates.length}: הוצב בלי אישור — מנסה את הבא`, '#78909c');
+        log(`   הקובץ הועלה (${kb}KB)${shown ? '' : ' — בלי חיווי בחלון'}`, '#78909c');
+        return null;
+      }
+    } finally {
+      XMLHttpRequest.prototype.open = origOpen;
     }
 
-    if (placed) {
-      log(`   הקובץ (${kb}KB) הוצב אך הרכיב לא הציג אישור — ממשיך בכל זאת`, '#78909c');
-      return null;
-    }
-
-    return `לא הצלחתי להציב את הקובץ (${kb}KB) — נמצאו ${candidates.length} שדות קובץ בחלון`;
+    return `הקובץ (${kb}KB) לא הועלה — אף שדה קובץ בחלון לא הפעיל העלאה`;
   }
+
+
 
   // ── כפתורים ────────────────────────────────────────────────────────
   const buttonByText = (text, root = document) => [...root.querySelectorAll('button, a.btn, input[type=button]')]
@@ -311,7 +315,7 @@
 
   const bar = document.createElement('div');
   bar.setAttribute('style', 'background:#263238;color:#fff;padding:10px 14px;display:flex;gap:8px;align-items:center;border-radius:7px 7px 0 0');
-  bar.innerHTML = '<b style="flex:1">מילוי טופס הוצאות <span style="opacity:.6;font-weight:400">v15</span>'
+  bar.innerHTML = '<b style="flex:1">מילוי טופס הוצאות <span style="opacity:.6;font-weight:400">v16</span>'
     + (EMBEDDED.startsWith('[') ? ' <span style="background:#6a1b9a;padding:1px 7px;border-radius:4px;font-weight:400">בדיקה</span>' : '')
     + '</b>';
 
