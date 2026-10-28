@@ -14,7 +14,7 @@
   //  מספר גרסה בראש הדוח: סימנייה היא עותק, והשרת יכול להתעדכן
   //  בלי שהיא תתעדכן. בלי הסימן הזה אי אפשר לדעת איזו גרסה דיווחה,
   //  וכבר ניתחתי דוח ישן כאילו הוא חדש.
-  say('דוח אבחון צרופות · גרסה 2');
+  say('דוח אבחון צרופות · גרסה 3');
 
   const visible = (el) => {
     if (!el) return false;
@@ -69,11 +69,26 @@
   }
 
   // ── האזנה לרשת, לפני כל פעולה ──
+  //  לא רק שהקריאה יצאה — גם מה השרת ענה. זה ההבדל בין "העלאה
+  //  נכשלה" לבין "העלאה הצליחה אבל הרכיב לא רענן את עצמו".
   const calls = [];
   const origFetch = window.fetch;
   const origOpen = XMLHttpRequest.prototype.open;
   window.fetch = function (...a) { calls.push(`fetch ${String(a[0]).slice(0, 80)}`); return origFetch.apply(this, a); };
-  XMLHttpRequest.prototype.open = function (m, u, ...a) { calls.push(`xhr ${m} ${String(u).slice(0, 80)}`); return origOpen.call(this, m, u, ...a); };
+  XMLHttpRequest.prototype.open = function (m, u, ...a) {
+    const rec = { line: `xhr ${m} ${String(u).slice(0, 70)}`, done: false };
+    calls.push(rec.line);
+    if (/attachment/i.test(String(u))) {
+      this.addEventListener('load', () => {
+        if (rec.done) return;
+        rec.done = true;
+        const body = String(this.responseText || '').replace(/\s+/g, ' ').slice(0, 220);
+        say(`  ↳ תשובת השרת: ${this.status} | ${body || '(ריק)'}`);
+      });
+      this.addEventListener('error', () => say('  ↳ הקריאה נכשלה ברמת הרשת'));
+    }
+    return origOpen.call(this, m, u, ...a);
+  };
 
   //  מבצע בדיוק את הרצף של המילוי: טריגר אחד, המתנה להעלאה, ואז
   //  עדכון שדה הטופס — כדי לבדוק אם זה מה שחסר, בלי להריץ מילוי שלם.
@@ -108,19 +123,28 @@
     say(`אורך הטקסט בחלון: ${before} → ${after} ${after !== before ? '(השתנה)' : '(לא השתנה)'}`);
     say(`שם הקובץ מופיע בחלון: ${(root.innerText || '').includes('בדיקה')}`);
 
-    //  הבדיקה האמיתית: מה הטופס חושב על שדה הצרופה
-    try {
-      const gf = sc?.gForm;
-      if (gf?.getValue) {
-        for (const f of ['attachment', 'attachments', 'u_attachment']) {
-          const v = gf.getValue(f);
-          if (v !== undefined && v !== null) say(`gForm.getValue("${f}") = ${String(v).slice(0, 60) || '(ריק)'}`);
-        }
-      } else { say('אין gForm בסקופ'); }
-      if (typeof sc?.validateAttachment === 'function') {
-        say(`validateAttachment() = ${JSON.stringify(sc.validateAttachment())}`);
-      }
-    } catch (e) { say(`בדיקת שדה הצרופה נכשלה: ${e.message}`); }
+    //  ה-API של הרכיב עצמו — כנראה הנתיב הנכון במקום לדמות בחירה
+    say(`uploadAttachment: ${typeof sc?.uploadAttachment} (מקבלת ${sc?.uploadAttachment?.length} פרמטרים)`);
+    say(`onAttachmentSelect: ${typeof sc?.onAttachmentSelect} (מקבלת ${sc?.onAttachmentSelect?.length} פרמטרים)`);
+    try { say(`validateAttachment(file) = ${JSON.stringify(sc?.validateAttachment?.(file))}`); }
+    catch (e) { say(`validateAttachment(file) זרקה: ${e.message}`); }
+
+    //  אם אחרי כל זה החלון עדיין ריק — מנסים את הפונקציה הייעודית
+    if (!(root.innerText || '').includes('בדיקה') && typeof sc?.uploadAttachment === 'function') {
+      const was2 = calls.length;
+      try {
+        sc.uploadAttachment(file);
+        sc.$applyAsync?.();
+        say('קריאה ישירה ל-uploadAttachment(file): בוצעה');
+      } catch (e) { say(`קריאה ישירה ל-uploadAttachment נכשלה: ${e.message}`); }
+      await new Promise((r) => setTimeout(r, 3000));
+      say(`  העלאה נוספת יצאה: ${calls.length > was2}`);
+      say(`  שם הקובץ מופיע עכשיו: ${(root.innerText || '').includes('בדיקה')}`);
+    }
+
+    //  מה מוצג באזור הצרופות עצמו
+    const att = document.getElementById('sp_formfield_attachment');
+    say(`אזור הצרופות: ${att ? JSON.stringify((att.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 120)) : 'לא נמצא'}`);
   }
 
   window.fetch = origFetch;
