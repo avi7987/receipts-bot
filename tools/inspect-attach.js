@@ -11,6 +11,11 @@
   const lines = [];
   const say = (s) => { lines.push(s); };
 
+  //  מספר גרסה בראש הדוח: סימנייה היא עותק, והשרת יכול להתעדכן
+  //  בלי שהיא תתעדכן. בלי הסימן הזה אי אפשר לדעת איזו גרסה דיווחה,
+  //  וכבר ניתחתי דוח ישן כאילו הוא חדש.
+  say('דוח אבחון צרופות · גרסה 2');
+
   const visible = (el) => {
     if (!el) return false;
     const r = el.getBoundingClientRect();
