@@ -20,6 +20,26 @@
 
   const TBD = 'TBD';
 
+  //  סימון ✓ בגיליון. מסמנים רק מה שנמצא בטופס, ורק אחרי שהוא שם.
+  //  אם הסימון ייכשל — הקבלה תופיע שוב בהרצה הבאה, וזה עדיף על
+  //  קבלה שסומנה אבל לא הוזנה ולכן לא תשולם לעולם.
+  async function markInSheet(rows) {
+    try {
+      const r = await fetch(`${API}/done?k=${KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows }),
+      });
+      const out = await r.json();
+      if (!r.ok || !out.ok) throw new Error(out.error || `HTTP ${r.status}`);
+      log(`✓ סומנו בגיליון: ${out.marked.length} שורות`, '#2e7d32');
+      (out.skipped || []).forEach((s) => log(`⤫ שורה ${s.row}: ${s.why}`, '#ef6c00'));
+    } catch (e) {
+      log(`⚠️ ההזנה הצליחה אבל הסימון בגיליון נכשל: ${e.message}`, '#ef6c00');
+      log('סמן את השורות ידנית, אחרת הן יוזנו שוב בפעם הבאה.', '#ef6c00');
+    }
+  }
+
   // ── עזרי המתנה ────────────────────────────────────────────────────
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -255,7 +275,7 @@
 
   const bar = document.createElement('div');
   bar.setAttribute('style', 'background:#263238;color:#fff;padding:10px 14px;display:flex;gap:8px;align-items:center;border-radius:7px 7px 0 0');
-  bar.innerHTML = '<b style="flex:1">מילוי טופס הוצאות <span style="opacity:.6;font-weight:400">v12</span>'
+  bar.innerHTML = '<b style="flex:1">מילוי טופס הוצאות <span style="opacity:.6;font-weight:400">v13</span>'
     + (EMBEDDED.startsWith('[') ? ' <span style="background:#6a1b9a;padding:1px 7px;border-radius:4px;font-weight:400">בדיקה</span>' : '')
     + '</b>';
 
@@ -304,14 +324,67 @@
     }
   }
 
-  const ready = pending.filter((p) => p.expenseType);
-  const skipped = pending.filter((p) => !p.expenseType);
+  // ── מה כבר נמצא בטופס ─────────────────────────────────────────────
+  //
+  //  כשההרצה נעצרת על שורה שדורשת תיקון ידני, משלימים אותה בטופס
+  //  ולוחצים שוב על הסימנייה כדי להמשיך. השורה הזו עדיין מסומנת
+  //  "ממתינה" בגיליון — היא נוספה ביד ולא דרכנו — ובלי הבדיקה הזו
+  //  היא הייתה נוספת פעם שנייה. לכן חיפשנו עד היום רק מסלול אחד:
+  //  למחוק הכול ולהתחיל מאפס.
+  //
+  //  הזיהוי לפי מספר החשבונית, שהוא המזהה היציב של הקבלה בטופס.
+  //  קוראים את הטופס בלי החלונות הקופצים, כדי לא לתפוס טקסט של
+  //  חלון שנשאר פתוח מהרצה קודמת.
+  const formText = () => {
+    const modals = new Set([...document.querySelectorAll('.modal-content, .modal-dialog, .modal, [role=dialog], [aria-modal=true]')]);
+    return [...document.querySelectorAll('table, .list-group, [role=grid], [role=table], .row-list, tbody')]
+      .filter((el) => visible(el) && ![...modals].some((m) => m.contains(el)))
+      .map((el) => el.innerText || '')
+      .join('\n');
+  };
+
+  const inForm = formText();
+  const alreadyThere = (p) => {
+    const inv = String(p.invoice || '').trim();
+    //  בלי מספר חשבונית אי אפשר לזהות בוודאות, ועדיף להוסיף שורה
+    //  כפולה שרואים מאשר לדלג על קבלה שלא הוזנה.
+    if (inv.length < 4) return false;
+    return inForm.includes(inv);
+  };
+
+  const existing = pending.filter(alreadyThere);
+  const ready = pending.filter((p) => p.expenseType && !alreadyThere(p));
+  const skipped = pending.filter((p) => !p.expenseType && !alreadyThere(p));
+
+  if (existing.length) {
+    log(`↩︎ ${existing.length} כבר בטופס — מדלג עליהן וממשיך מאיפה שנעצרת`, '#6a1b9a');
+    existing.forEach((p) => log(`   · ${p.vendor} · ${Math.round(p.amount)} ₪`, '#6a1b9a'));
+  }
 
   log(`📄 ${pending.length} קבלות ממתינות`);
   if (skipped.length) {
     log(`⚠️ ${skipped.length} מדולגות — אין להן סוג הוצאה מתאים: ${skipped.map((s) => s.category || '?').join(', ')}`, '#ef6c00');
   }
-  if (!ready.length) { log('אין מה למלא.', '#78909c'); return; }
+  //  חלון שנשאר פתוח מהרצה שנעצרה חוסם את כפתור ה-Add הבא
+  const leftover = [...document.querySelectorAll('.modal-content, .modal-dialog, .modal, [role=dialog], [aria-modal=true]')].filter(visible).pop();
+  if (leftover) {
+    const cancel = buttonByText('Cancel', leftover) || buttonByText('ביטול', leftover);
+    if (cancel) {
+      log('↩︎ סוגר חלון שנשאר פתוח מהרצה קודמת', '#6a1b9a');
+      cancel.click();
+      await waitFor(() => ![...document.querySelectorAll('.modal-content, .modal-dialog, .modal, [role=dialog], [aria-modal=true]')].some(visible), { timeout: 5000 });
+    } else {
+      log('⚠️ יש חלון פתוח שלא הצלחתי לסגור — סגור אותו ידנית ונסה שוב', '#c62828');
+      return;
+    }
+  }
+
+  if (!ready.length) {
+    log(existing.length ? 'הכול כבר בטופס. אין מה להוסיף.' : 'אין מה למלא.', '#78909c');
+    // גם כשאין מה להוסיף, מה שכבר בטופס צריך להיות מסומן בגיליון
+    if (existing.length) await markInSheet(existing.map((p) => ({ row: p.row, invoice: p.invoice, amount: p.amount })));
+    return;
+  }
 
   log(`<hr>מתחיל למלא ${ready.length} שורות. אל תיגע בעמוד.`);
 
@@ -321,8 +394,9 @@
   // שורות שבהן "רכב חלופי" נכפה עלינו כשדה חובה ומולא ברכב הרגיל —
   // רק עליהן צריך להתריע בסיכום, לא על כל הרצה.
   const carFallbacks = [];
-  // מה שנוסף בפועל לטופס — הרשימה שתסומן ✓ בגיליון בסוף
-  const added = [];
+  //  מה שנמצא בטופס — הרשימה שתסומן ✓ בגיליון בסוף. מה שכבר היה
+  //  שם לפני ההרצה נכנס גם הוא: הוא הוזן ביד, והגיליון עוד לא יודע.
+  const added = existing.map((p) => ({ row: p.row, invoice: p.invoice, amount: p.amount }));
 
   for (const item of ready) {
     if (stopped) break;
@@ -466,26 +540,15 @@
   //  מסמנים רק את מה שבאמת נוסף, ורק אחרי שהוא נוסף. אם הסימון
   //  ייכשל — הקבלה תופיע שוב בהרצה הבאה, וזה עדיף על קבלה שסומנה
   //  אבל לא הוזנה ולכן לא תשולם לעולם.
-  if (added.length) {
-    try {
-      const r = await fetch(`${API}/done?k=${KEY}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: added }),
-      });
-      const out = await r.json();
-      if (!r.ok || !out.ok) throw new Error(out.error || `HTTP ${r.status}`);
-      log(`✓ סומנו בגיליון: ${out.marked.length} שורות`, '#2e7d32');
-      (out.skipped || []).forEach((s) => log(`⤫ שורה ${s.row}: ${s.why}`, '#ef6c00'));
-    } catch (e) {
-      log(`⚠️ הזנה הצליחה אבל הסימון בגיליון נכשל: ${e.message}`, '#ef6c00');
-      log('סמן את השורות ידנית, אחרת הן יוזנו שוב בפעם הבאה.', '#ef6c00');
-    }
-  }
+  if (added.length) await markInSheet(added);
 
   // ── סיכום ─────────────────────────────────────────────────────────
   log('<hr>');
   log(`<b>סיכום: ${done} שורות נוספו מתוך ${ready.length}</b>`);
+  if (existing.length) log(`${existing.length} היו כבר בטופס ודולגו.`, '#6a1b9a');
+  if (problems.length && done < ready.length) {
+    log('<br>תקן את מה שחסר ישירות בטופס, ואז לחץ שוב על הסימנייה — היא תדלג על מה שכבר בפנים ותמשיך מהנקודה שנעצרה.', '#6a1b9a');
+  }
   if (problems.length) {
     log('<b>מה נעצר:</b>', '#c62828');
     problems.forEach((p) => log(`• ${p}`, '#c62828'));
