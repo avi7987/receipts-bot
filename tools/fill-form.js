@@ -209,7 +209,18 @@
   //  חשוב: מחפשים את שדה הקובץ בתוך החלון בלבד. לטופס עצמו יש אזור
   //  "Add attachments" נפרד, וכשחיפשתי בכל העמוד הקובץ הלך לשם —
   //  הצרופה של השורה נשארה ריקה והחלון סירב להיסגר.
-  async function attach(url, name, root) {
+  //  הסיומת נגזרת מהקובץ עצמו ולא מקובעת. קבלות דלק מגיעות כ-PDF,
+  //  ושליחתן בשם ".jpg" גרמה ל-ServiceNow לדחות אותן — ורק אותן.
+  //  קבלות המסעדות, שהן צילומים, עברו בלי בעיה והסתירו את התקלה.
+  const MIME_EXT = {
+    'application/pdf': 'pdf',
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'image/gif': 'gif',
+  };
+
+  async function attach(url, baseName, root) {
     let blob;
     try {
       const r = await fetch(url, { mode: 'cors', credentials: 'omit' });
@@ -219,6 +230,13 @@
       return `הורדת הקובץ נכשלה: ${e.message}`;
     }
     const kb = Math.round(blob.size / 1024);
+
+    const mime = String(blob.type || '').split(';')[0].trim().toLowerCase();
+    const fromUrl = (String(url).match(/\.([a-z0-9]{2,5})(?:[?#]|$)/i) || [])[1]?.toLowerCase();
+    const ext = MIME_EXT[mime] || fromUrl || 'jpg';
+    const name = `${baseName}.${ext}`;
+    const type = mime || (ext === 'pdf' ? 'application/pdf' : 'image/jpeg');
+    log(`   קובץ: ${name} (${kb}KB, ${type})`, '#78909c');
 
     // מועמדים לפי קרבה: ליד כפתור Upload, ואז כל שדה קובץ בחלון
     const upload = buttonByText('Upload', root);
@@ -247,7 +265,7 @@
 
     try {
       for (const input of candidates) {
-        const file = new File([blob], name, { type: blob.type || 'image/jpeg' });
+        const file = new File([blob], name, { type });
         const dt = new DataTransfer();
         dt.items.add(file);
         try { input.files = dt.files; } catch { continue; }
@@ -315,7 +333,7 @@
 
   const bar = document.createElement('div');
   bar.setAttribute('style', 'background:#263238;color:#fff;padding:10px 14px;display:flex;gap:8px;align-items:center;border-radius:7px 7px 0 0');
-  bar.innerHTML = '<b style="flex:1">מילוי טופס הוצאות <span style="opacity:.6;font-weight:400">v16</span>'
+  bar.innerHTML = '<b style="flex:1">מילוי טופס הוצאות <span style="opacity:.6;font-weight:400">v17</span>'
     + (EMBEDDED.startsWith('[') ? ' <span style="background:#6a1b9a;padding:1px 7px;border-radius:4px;font-weight:400">בדיקה</span>' : '')
     + '</b>';
 
@@ -534,7 +552,7 @@
       log('❌ אין קובץ מצורף לשורה הזו', '#c62828');
       break;
     }
-    const attachErr = await attach(item.file, `${item.vendor || 'receipt'}_${Math.round(item.amount)}.jpg`, modal);
+    const attachErr = await attach(item.file, `${item.vendor || 'receipt'}_${Math.round(item.amount)}`, modal);
     if (attachErr) {
       problems.push(`${title}: ${attachErr}`);
       log(`❌ ${attachErr}`, '#c62828');

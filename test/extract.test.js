@@ -472,3 +472,24 @@ test('sniffMime מזהה לפי הבתים הראשונים', () => {
   assert.equal(sniffMime(''), null);
   assert.equal(sniffMime(null), null);
 });
+
+// ── סיומת הקובץ בצרופה ──────────────────────────────────────────────
+//  קבלות דלק מגיעות כ-PDF, ונשלחו בשם ".jpg" מקובע — ServiceNow דחה
+//  אותן, ורק אותן. אותה נוסחה שבסימנייה, כדי שהיא תישאר נבדקת.
+const MIME_EXT = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' };
+const attachName = (base, url, blobType) => {
+  const mime = String(blobType || '').split(';')[0].trim().toLowerCase();
+  const fromUrl = (String(url).match(/\.([a-z0-9]{2,5})(?:[?#]|$)/i) || [])[1]?.toLowerCase();
+  return `${base}.${MIME_EXT[mime] || fromUrl || 'jpg'}`;
+};
+
+test('סיומת הצרופה נגזרת מהקובץ ולא מקובעת', () => {
+  assert.equal(attachName('ON-EV_99', 'https://x/8af3.pdf', 'application/pdf'), 'ON-EV_99.pdf');
+  assert.equal(attachName('כוורת_76', 'https://x/b789.jpg', 'image/jpeg'), 'כוורת_76.jpg');
+  assert.equal(attachName('x_1', 'https://x/a.png', 'image/png; charset=binary'), 'x_1.png');
+  // אין סוג מהשרת — נופלים לסיומת שבכתובת
+  assert.equal(attachName('x_1', 'https://x/a.pdf', ''), 'x_1.pdf');
+  assert.equal(attachName('x_1', 'https://x/a.pdf?t=1', ''), 'x_1.pdf');
+  // אין כלום — ברירת מחדל שמרנית
+  assert.equal(attachName('x_1', 'https://x/file', ''), 'x_1.jpg');
+});
